@@ -1,0 +1,101 @@
+legacy_account_id,full_name_raw,email_address,phone_raw,signup_date_str,account_status_code,balance_due_str,risk_flag,country_code_raw
+LEGACY-CUST-83910,"Clark, Liam",jane.khan@gmail.com,(780) 935-6155,2016-03-13,01,(124.07),LOW,US
+LEGACY-CUST-14692,Ethan Rossi,fatima.garcia@outlook.com,56333,,1,"$24,903.03",MED,
+LEGACY-CUST-03378,John Patel,N/A,000-000-0000,1463788800,,7461.12,LOW,USA
+LEGACY-CUST-97296,Maria Clark,john.young@hotmail.com ,(514) 445-1949,00/00/0000,X,"20,400.58",HIGH,USA
+LEGACY-CUST-36148,"Clark, Chloe",ava.rossi@yahoo.com,TBD,2013-05-18,0,0,N,GB
+LEGACY-CUST-32198,"Hall, Fatima",,,1126742400,1,5950.12,N,USA
+LEGACY-CUST-29356,ETHAN HALL,sofia.chengmail.com,+1 678 946 1887,UNKNOWN,0,"USD 8,482.57",N,United States
+LEGACY-CUST-18389,"Garcia, Ahmed",fatima.sharma@acme-corp.com,000-000-0000,2008-09-24,0,"USD 21,616.26",Y,USA
+LEGACY-CUST-96630,Raj Brown,olivia.rossi@outlook.com,,,0,-12571.26,Y,
+LEGACY-CUST-13534,,,TBD,2010-07-10,1,2049.59,LOW,US
+LEGACY-CUST-88796,Liam F. Chen,raj.garcia@hotmail.com,,2009-10-13,1,,N,US
+LEGACY-CUST-97180,Ahmed Clark,Lucas.Doe@OUTLOOK.COM,337-470-2891 x770,UNKNOWN,1,(344.06),y,Canada
+LEGACY-CUST-71582,Bono,jane.doe@hotmail.com,959-652-8007,,,"$22,598.21",,CAN
+LEGACY-CUST-11495,Prince,jane.lee@yahoo.com,000-000-0000,00/00/0000,,619.66,N,
+LEGACY-CUST-77497,"Brown, Fatima",RAJ.SMITH@ACME-CORP.COM,,2009-05-02,1,1735.52,N,Canada
+LEGACY-CUST-55402,Mia Taylor,liam.lopez@outlook.com,644.553.6139,UNKNOWN,,,N,Canada
+LEGACY-CUST-04265,"Chen, Mia",,+1 880 538 6143,"October 18, 2007",1,"$7,732.12",N,US
+LEGACY-CUST-04005,"Chen, Carlos",N/A,80516,09/08/2019,0,"$16,890.68",,
+LEGACY-CUST-12380,"Sharma, Maria",ava.taylor@gmail.com,,1900-01-01,,"$1,820.71",LOW,United States
+LEGACY-CUST-28757,"Martin, Raj",JOHN.PATEL@ACME-CORP.COM,675-251-5082 x134,UNKNOWN,0,"$13,278.30",N,IN
+LEGACY-CUST-30595,Ahmed Young,sofia.clark@acme-corp.com,37347,"March 06, 2022",0,"$5,981.15",,United States
+LEGACY-CUST-66337,Noah Taylor,,3544367275,11/04/2020,0,"$8,272.03",Y,India
+LEGACY-CUST-79007,Raj Hall,,983-789-7232,11/21/2012,1,-22291.04,HIGH,United Kingdom
+LEGACY-CUST-03578,AVA KHAN,Chloe.Doe@ACME-CORP.COM,TBD,1123545600,0,,N,
+LEGACY-CUST-73663,"Smith, Maria",ahmed.taylor@hotmail.com,631-458-2341,2021-10-20, 1,8749.01,,UK
+LEGACY-CUST-26162,"Khan, John",,356-444-3068,2007-07-27,1,17486.62,Y,GB
+LEGACY-CUST-93950,Priya Lopez,john.wilson@outlook.com,+1 932 403 2245,"August 19, 2023",1,-19312.02,LOW,USA
+LEGACY-CUST-85281,"Smith, Ethan",emma.sharma@outlook.com ,+1 308 643 6934,2023-08-03,1,"$4,403.42",LOW,GB
+LEGACY-CUST-92024,MIA MARTIN,ethan.brown@hotmail.com,661-449-8613,12/27/2019,1,0,N,IN
+LEGACY-CUST-71526,Noah Brown,liam.clark@gmail.com,6167004937,"June 28, 2019",0,(202.80),N,UK
+LEGACY-CUST-55087,  Emma Martin ,mia.taylor@hotmail.com,323.938.4155,2021-08-30,X,0,HIGH,United Kingdom
+LEGACY-CUST-28993,"Young, Lucas",wei.wilson@yahoo.com,TBD,"July 22, 2011",1,"$21,711.53",y,CAN
+LEGACY-CUST-58978,"Martin, Chloe",jane.brownacme-corp.com ,(844) 902-1878,2023-03-12,1,N/A,,GB
+LEGACY-CUST-77336,Ava Khan,ahmed.wilson@outlook.com,000-000-0000,01/12/2019,9,N/A,Y,USA
+LEGACY-CUST-36563,AHMED YOUNG,,4959235632,,1,-6613.87,LOW,India
+LEGACY-CUST-00951,Madonna,liam.garciagmail.com,(782) 495-8195,06/12/2020,0,"$6,806.15",N,GB
+LEGACY-CUST-99558,  Sofia Taylor ,,TBD,06/05/2023,1,"$18,906.72",LOW,
+LEGACY-CUST-21026,"Hall, Maria",amit.martin@hotmail.com,3645377744,"June 20, 2011",0,,Y,United States
+LEGACY-CUST-91606,Priya Singh,john.clark@acme-corp.com,9747108242,07/26/2009,1,"USD 7,200.73",HIGH,USA
+LEGACY-CUST-55492,Ava Khan,john.clarkacme-corp.com,672-320-3522,01/27/2021,X,"$10,387.26",HIGH,CA
+LEGACY-CUST-44697,"Singh, Carlos",carlos.sharma@hotmail.com,(719) 473-1042,1315785600,0,"USD 16,498.52",N,Canada
+LEGACY-CUST-36521,Noah Clark,noah.chen@yahoo.com,2445258749,2023-03-15, 1,19809.84,Y,
+LEGACY-CUST-20479,Carlos Moore,priya.ali@gmail.com,,13-07-22,9,,N,UK
+LEGACY-CUST-28321,Mia Singh,chloe.clark@gmail.com,494.432.2480,"March 18, 2007",X,N/A,N,USA
+LEGACY-CUST-44218,"Smith, Noah",carlos.khan@outlook.com,+1 379 280 7267,2010-05-27,0,5804.71,HIGH,UK
+LEGACY-CUST-13496,Ahmed C. Wilson,,+1 553 801 5901,"July 08, 2014",0,"7,553.04",y,USA
+LEGACY-CUST-12256,"Hall, Raj",Olivia.Doe@ACME-CORP.COM,38512,1653523200,9,8808.02,LOW,UK
+LEGACY-CUST-49897,Carlos Patel,olivia.ali@gmail.com,(502) 534-7807,1198022400,,"$9,146.44",N,United States
+LEGACY-CUST-12776,Chloe Wilson,PRIYA.ALI@GMAIL.COM,TBD,UNKNOWN,1,N/A,N,United Kingdom
+LEGACY-CUST-47152,"Hall, Liam",emma.patel@yahoo.com,+1 535 824 4626,1554249600,01,"$7,554.75",Y,
+LEGACY-CUST-45182,Madonna,carlos.singh@acme-corp.com,753-629-3531 x680,1174608000,9,(345.45),N,CA
+LEGACY-CUST-79231,Prince,Emma.Smith@ACME-CORP.COM,+1 665 293 4475,00/00/0000,,N/A,LOW,USA
+LEGACY-CUST-34771,  Mia Chen ,fatima.taylor@yahoo.com,(348) 333-9850,UNKNOWN,,(394.43),LOW,USA
+LEGACY-CUST-05795,Bono,amit.martin@acme-corp.com,7154261710,2019-10-12,0,,HIGH,CA
+LEGACY-CUST-95747,Priya Martin,AMIT.TAYLOR@OUTLOOK.COM	,761.929.6327,2018-05-26,0,,,India
+LEGACY-CUST-60317,"Chen, Mia",sofia.taylor@acme-corp.com,520.881.5176,"June 04, 2008",0,,N,United Kingdom
+LEGACY-CUST-70384,  Emma Garcia ,mia.clark@hotmail.com,TBD,01/04/2012,0,5318.47,N,USA
+LEGACY-CUST-16461,Prince,N/A,,"February 17, 2011",1,,y,CAN
+LEGACY-CUST-49715,"Sharma, Raj",JOHN.SHARMA@OUTLOOK.COM,75395,UNKNOWN,1,"$3,935.25",LOW,US
+LEGACY-CUST-10428,  Sofia Martin ,Wei.Moore@GMAIL.COM	,,00/00/0000,1,0,Y,United States
+LEGACY-CUST-72457,,maria.garcia@acme-corp.com,884.562.2180,,1,"USD 23,029.06",LOW,CAN
+LEGACY-CUST-38527,Cher,maria.young@acme-corp.com,+1 308 449 8138,,,0,,USA
+LEGACY-CUST-82497,PRIYA MOORE,EMMA.LEE@YAHOO.COM  ,(356) 978-2234,"May 03, 2022",0,"$14,093.39",LOW,
+LEGACY-CUST-81170,Ava Taylor,carlos.ali@gmail.com,805-257-6766,2011-12-18,1,(322.69),MED,USA
+LEGACY-CUST-47500,"Moore, Ava",jane.ali@outlook.com,(354) 263-8381,10/13/2023,X,N/A,N,CA
+LEGACY-CUST-75774,AHMED MOORE,emma.wilson@acme-corp.com,,2007-02-14,1,-6299.89,MED,GB
+LEGACY-CUST-25303,Madonna,olivia.singh@yahoo.com,88833,1601942400,X,"$17,135.36",LOW,CA
+LEGACY-CUST-92449,"Doe, Emma",WEI.TAYLOR@ACME-CORP.COM,97815,,1,N/A,N,United States
+LEGACY-CUST-09216,Ava Lopez,,TBD,"May 24, 2011",,0,MED,IN
+LEGACY-CUST-06106,Wei K. Lee,ahmed.wilson@acme-corp.com,404-819-3267 x63,2019-05-20,1,23357.34,HIGH,USA
+LEGACY-CUST-86773,"Lopez, Amit",carlos.rossi@gmail.com,,04/05/2016,1,0,N,USA
+LEGACY-CUST-29971,"Garcia, Noah",N/A,TBD,2016-11-02,X,N/A,N,GB
+LEGACY-CUST-38030,,chloe.youngoutlook.com,,11/30/2012,0,,MED,USA
+LEGACY-CUST-10558,LUCAS CLARK,mia.doe@acme-corp.com ,459.965.1266,07/08/2006,X,15706.42,,US
+LEGACY-CUST-30612,JANE LEE,maria.ali@acme-corp.com,(994) 668-1605,1135468800,,(199.71),,CA
+LEGACY-CUST-13338,"Chen, Jane",JANE.TAYLOR@HOTMAIL.COM,961.650.7334,2009-03-11,0,"$23,107.76",,United Kingdom
+LEGACY-CUST-49923,  Amit Rossi ,mia.wilsonhotmail.com,(656) 817-7981,12/16/2014,1,(499.08),N,Untied States
+LEGACY-CUST-36534,Jane G. Sharma,maria.doe@yahoo.com,49015,2013-02-14,0,15127.37,Low,u.s.a.
+LEGACY-CUST-59529,"Hall, Amit",noah.brown@yahoo.com  ,(596) 775-2929,"November 03, 2010",1,15296.93,MED,United States
+LEGACY-CUST-83420,CARLOS SHARMA,ahmed.sharma@hotmail.com,4975073580,"September 15, 2020",,N/A,N,USA
+LEGACY-CUST-47919,"Doe, Chloe",ahmed.clark@yahoo.com ,934-936-8842,2022-04-02,0,(38.01),HIGH,Canada
+LEGACY-CUST-21419,Carlos C. Clark,carlos.rossi@outlook.com  ,511.368.3653,11/28/2020,01,(40.35),Y,
+LEGACY-CUST-48620,Liam K. Garcia,lucas.lopez@outlook.com,74874,1133654400,1,1136.55,LOW,UK
+LEGACY-CUST-46666,  Ethan Rossi ,,+1 842 758 5745,2011-10-11,,(37.41),Y,CA
+LEGACY-CUST-27560,"Ali, Chloe",noah.taylor@hotmail.com ,308-526-4960,2011-01-01,1,"1,265.13",y,CA
+LEGACY-CUST-87941,Maria Taylor,wei.lopez@acme-corp.com,TBD,00/00/0000,0,(299.16),,UK
+LEGACY-CUST-35093,,carlos.brown@hotmail.com,783.775.4189,,0,(494.56),LOW,USA
+LEGACY-CUST-92088,"Singh, Priya",MIA.LEE@YAHOO.COM,2462393245,2023-01-13,0,"$15,156.51",N,GB
+LEGACY-CUST-89693,Maria Singh,olivia.hall@hotmail.com,49281,"June 06, 2012", 1,-14592.55,,UK
+LEGACY-CUST-85039,JOHN YOUNG,ethan.hall@yahoo.com,(844) 938-7229,04/08/2020,0,0,N,CA
+LEGACY-CUST-09458,"Chen, Sofia",chloe.smith@yahoo.com,689.738.7173,2008-11-19,0,13656.83,y,UK
+LEGACY-CUST-79940,LIAM YOUNG,LIAM.CLARK@HOTMAIL.COM,4959214396,12/20/2015,1,-23342.51,N,USA
+LEGACY-CUST-83327,Mia Singh,emma.garciahotmail.com,6528715201,10/19/2009,0,23325.60,Y,GB
+LEGACY-CUST-22531,"Khan, Ethan",lucas.khanyahoo.com,,00/00/0000,0,"USD 23,375.80",HIGH,United States
+LEGACY-CUST-70110,"Taylor, Olivia",,987-291-4804,1616284800,1,"$23,036.77",,
+LEGACY-CUST-95668,Jane Singh,Olivia.Smith@GMAIL.COM,TBD,2016-10-05,01,"$21,276.49",Y,USA
+LEGACY-CUST-32187,Maria C. Ali,,(545) 502-4164,1556582400,,,LOW,United States
+LEGACY-CUST-21517,"Martin, Carlos",liam.singh@yahoo.com,(796) 940-1187,"January 24, 2013",1,(203.30),HIGH,
+LEGACY-CUST-60689,Olivia E. Patel,fatima.khan@yahoo.com,582-625-9998 x785,1484956800,,19046.49,LOW,IN
+LEGACY-CUST-49835,LUCAS ALI,ethan.patel@gmail.com,749.353.3695,2016-09-02,9,"$17,922.95",y,CA

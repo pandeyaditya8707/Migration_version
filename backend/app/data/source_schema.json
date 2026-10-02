@@ -1,0 +1,73 @@
+{
+  "schema_id": "legacy_crm_v1",
+  "name": "Legacy Customer CRM Schema",
+  "description": "Legacy mainframe/SQL export containing dirty, unstandardized customer records.",
+  "fields": [
+    {
+      "name": "legacy_account_id",
+      "data_type": "string",
+      "nullable": false,
+      "description": "Primary natural key in legacy system (e.g. LEGACY-CUST-00101)",
+      "constraints": {
+        "unique": true,
+        "format": "LEGACY-CUST-\\d{5}"
+      }
+    },
+    {
+      "name": "full_name_raw",
+      "data_type": "string",
+      "nullable": true,
+      "description": "Dirty names in mixed formats ('Doe, John', 'Jane Smith', 'Cher', empty)",
+      "constraints": {}
+    },
+    {
+      "name": "email_address",
+      "data_type": "string",
+      "nullable": true,
+      "description": "Customer contact email, may contain mixed casing, trailing whitespace, or missing '@'",
+      "constraints": {}
+    },
+    {
+      "name": "phone_raw",
+      "data_type": "string",
+      "nullable": true,
+      "description": "Raw phone strings with punctuation '(555) 123-4567', dots, or invalid short numbers",
+      "constraints": {}
+    },
+    {
+      "name": "signup_date_str",
+      "data_type": "string",
+      "nullable": true,
+      "description": "Heterogeneous dates: 'MM/DD/YYYY', 'YYYY-MM-DD', 'Month DD, YYYY', epoch, or 'UNKNOWN'",
+      "constraints": {}
+    },
+    {
+      "name": "account_status_code",
+      "data_type": "string",
+      "nullable": true,
+      "description": "Legacy integer status code: 1=ACTIVE, 0=INACTIVE, 9=TERMINATED, X=UNKNOWN, null",
+      "constraints": {}
+    },
+    {
+      "name": "balance_due_str",
+      "data_type": "string",
+      "nullable": true,
+      "description": "Monetary strings: '$1,450.00', '(50.00)', '0', 'N/A', null",
+      "constraints": {}
+    },
+    {
+      "name": "risk_flag",
+      "data_type": "string",
+      "nullable": true,
+      "description": "Legacy risk indicators: 'Y', 'N', 'HIGH', 'LOW', empty",
+      "constraints": {}
+    },
+    {
+      "name": "country_code_raw",
+      "data_type": "string",
+      "nullable": true,
+      "description": "Country names or abbreviations: 'USA', 'United States', 'CA', 'Canada', 'GB', 'UK', null",
+      "constraints": {}
+    }
+  ]
+}

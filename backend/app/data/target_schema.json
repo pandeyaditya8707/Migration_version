@@ -1,0 +1,105 @@
+{
+  "schema_id": "modern_core_v2",
+  "name": "Modern Customer Platform Schema",
+  "description": "Standardized target customer store with strict data types, non-null guarantees, and ISO formats.",
+  "fields": [
+    {
+      "name": "customer_uuid",
+      "data_type": "string",
+      "nullable": false,
+      "description": "UUIDv5 primary key generated deterministically from legacy natural key",
+      "constraints": {
+        "unique": true,
+        "format": "uuid"
+      }
+    },
+    {
+      "name": "natural_key",
+      "data_type": "string",
+      "nullable": false,
+      "description": "Source reference key for deduplication and retry idempotency",
+      "constraints": {
+        "unique": true
+      }
+    },
+    {
+      "name": "first_name",
+      "data_type": "string",
+      "nullable": false,
+      "description": "Customer given name",
+      "constraints": {
+        "min_length": 1
+      }
+    },
+    {
+      "name": "last_name",
+      "data_type": "string",
+      "nullable": true,
+      "description": "Customer family name",
+      "constraints": {}
+    },
+    {
+      "name": "email",
+      "data_type": "string",
+      "nullable": false,
+      "description": "Validated RFC email address",
+      "constraints": {
+        "format": "email"
+      }
+    },
+    {
+      "name": "phone_e164",
+      "data_type": "string",
+      "nullable": true,
+      "description": "International standard E.164 phone string (+1XXXXXXXXXX)",
+      "constraints": {
+        "regex": "^\\+[1-9]\\d{1,14}$"
+      }
+    },
+    {
+      "name": "joined_at",
+      "data_type": "string",
+      "nullable": false,
+      "description": "UTC ISO-8601 registration timestamp (YYYY-MM-DDTHH:MM:SSZ)",
+      "constraints": {
+        "format": "date-time"
+      }
+    },
+    {
+      "name": "status",
+      "data_type": "string",
+      "nullable": false,
+      "description": "Standardized lifecycle status enum",
+      "constraints": {
+        "enum": ["ACTIVE", "INACTIVE", "SUSPENDED", "TERMINATED"]
+      }
+    },
+    {
+      "name": "balance_due",
+      "data_type": "float",
+      "nullable": false,
+      "description": "Current balance in USD as 2-decimal float",
+      "constraints": {
+        "default": 0.0
+      }
+    },
+    {
+      "name": "risk_tier",
+      "data_type": "string",
+      "nullable": false,
+      "description": "Account risk tier classification",
+      "constraints": {
+        "enum": ["STANDARD", "ELEVATED", "CRITICAL"]
+      }
+    },
+    {
+      "name": "country_iso2",
+      "data_type": "string",
+      "nullable": false,
+      "description": "ISO 3166-1 alpha-2 uppercase country code",
+      "constraints": {
+        "regex": "^[A-Z]{2}$"
+      }
+    }
+  ]
+}

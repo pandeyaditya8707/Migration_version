@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agentic Data Migration Planner & Reconciliation Workbench</title>
+  <meta name="description" content="Production-grade Agentic Workbench for Planning, Validating, Executing, and Reconciling Bounded Data Migrations with Zero Silent Drop.">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Top Navigation Header -->
+    <header class="top-nav">
+      <div class="brand-section">
+        <div class="brand-logo">
+          <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+        </div>
+        <div class="brand-text">
+          <h1>MIGRATION WORKBENCH</h1>
+          <p>Agentic Planner & Reconciliation Engine</p>
+        </div>
+      </div>
+
+      <div class="nav-actions">
+        <div class="plan-badge">
+          <span class="status-indicator" id="plan-status-dot"></span>
+          <span id="active-plan-badge-text">Plan: v1 (PROPOSED)</span>
+        </div>
+        <button id="btn-propose-new-plan" class="btn btn-secondary">
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+          AI Propose Plan
+        </button>
+        <button id="btn-run-dry-run-top" class="btn btn-primary">
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/></svg>
+          Run Dry-Run
+        </button>
+        <button id="btn-approve-plan-top" class="btn btn-success">
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+          Approve Plan
+        </button>
+        <button id="btn-execute-migration-top" class="btn btn-primary" style="background: linear-gradient(135deg, #8b5cf6, #ec4899);" disabled>
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+          Execute Target Write
+        </button>
+        <button id="btn-reset-workbench" class="btn btn-secondary" title="Reset target database and ledger">
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <nav class="tabs-bar">
+      <button class="tab-btn active" data-tab="tab-profiler" id="tab-btn-profiler">
+        <span>1. Schemas & Profiler</span>
+        <span class="badge-pill" id="badge-source-count">1,000 recs</span>
+      </button>
+      <button class="tab-btn" data-tab="tab-mapping" id="tab-btn-mapping">
+        <span>2. AI Mapping Studio</span>
+        <span class="badge-pill" id="badge-mappings-count">11 fields</span>
+      </button>
+      <button class="tab-btn" data-tab="tab-dryrun" id="tab-btn-dryrun">
+        <span>3. Deterministic Dry-Run</span>
+        <span class="badge-pill" id="badge-dryrun-status">Simulation</span>
+      </button>
+      <button class="tab-btn" data-tab="tab-execution" id="tab-btn-execution">
+        <span>4. Mock Target Store</span>
+        <span class="badge-pill" id="badge-target-count">0 in DB</span>
+      </button>
+      <button class="tab-btn" data-tab="tab-reconciliation" id="tab-btn-reconciliation">
+        <span>5. Reconciliation & Audit</span>
+        <span class="badge-pill" id="badge-recon-status">Parity Check</span>
+      </button>
+    </nav>
+
+    <!-- Main Workspace Stage -->
+    <main class="main-stage">
+      
+      <!-- ================= TAB 1: SCHEMAS & PROFILER ================= -->
+      <section class="view-panel active" id="tab-profiler">
+        <div class="section-header">
+          <div>
+            <h2 class="section-title">Source Data Profiling & Target Schema Invariants</h2>
+            <p class="section-desc">Inspect structural contracts, null rates, regex distributions, and anomalous legacy records.</p>
+          </div>
+        </div>
+
+        <!-- Ingestion & Dataset Selection Card -->
+        <div class="card" id="dataset-intake-card" style="background: linear-gradient(145deg, rgba(99, 102, 241, 0.08), rgba(6, 182, 212, 0.05)); border: 2px dashed rgba(99, 102, 241, 0.35); transition: all 0.2s ease;">
+          <div class="card-header" style="border-bottom: none; margin-bottom: 0;">
+            <div>
+              <h3 class="card-title" style="font-size: 1.05rem; color: #fff;">
+                <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+                Dataset Intake: Upload Custom Data, Drag & Drop, or Use Benchmark
+              </h3>
+              <p style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.25rem;">
+                Upload or drag & drop your CSV / JSON file. The AI engine will dynamically profile columns, synthesize mapping rules, and execute target migrations.
+              </p>
+            </div>
+            <div style="display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap;">
+              <input type="file" id="input-dataset-file" accept=".csv,.json,.xlsx,.xls,text/csv,application/json" style="position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; opacity: 0;">
+              
+              <label for="input-dataset-file" id="btn-trigger-upload" class="btn btn-primary" style="cursor: pointer; display: inline-flex; align-items: center; gap: 0.5rem; margin: 0; user-select: none;">
+                <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+                <span>Upload Custom CSV / JSON</span>
+              </label>
+
+              <button id="btn-load-test-sample" class="btn btn-secondary" title="Quickly load 100 test records from user_test_records.csv">
+                <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                Load Test Sample (100 Recs)
+              </button>
+
+              <button id="btn-load-benchmark" class="btn btn-secondary" title="Reset to standard 1,000-record benchmark">
+                Load 1,000 Benchmark
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-label">Total Bounded Records</div>
+            <div class="stat-value" id="stat-total-records">1,000</div>
+            <div class="stat-sub">Deterministic sample size</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Source Columns</div>
+            <div class="stat-value" id="stat-source-cols">9</div>
+            <div class="stat-sub">Legacy CRM schema fields</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Target Fields Required</div>
+            <div class="stat-value" id="stat-target-req-cols">9 / 11</div>
+            <div class="stat-sub">Strict NOT NULL invariants</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Anomalies Detected</div>
+            <div class="stat-value" style="color: var(--accent-amber);" id="stat-anomalies-rate">~5.8%</div>
+            <div class="stat-sub">Dates, short phones, legacy status</div>
+          </div>
+        </div>
+
+        <div class="dual-col">
+          <!-- Source Schema Card -->
+          <div class="card">
+            <div class="card-header">
+              <h3 class="card-title">
+                <span style="color: var(--accent-cyan);">●</span> Source: Legacy CRM Schema (v1)
+              </h3>
+              <span class="badge-pill">legacy_crm_v1</span>
+            </div>
+            <div class="table-wrapper">
+              <table class="data-table" id="table-source-schema">
+                <thead>
+                  <tr><th>Field</th><th>Type</th><th>Null %</th><th>Distinct</th><th>Pattern Detected</th></tr>
+                </thead>
+                <tbody id="tbody-source-schema"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Target Schema Card -->
+          <div class="card">
+            <div class="card-header">
+              <h3 class="card-title">
+                <span style="color: var(--accent-emerald);">●</span> Target: Modern Platform Schema (v2)
+              </h3>
+              <span class="badge-pill">modern_core_v2</span>
+            </div>
+            <div class="table-wrapper">
+              <table class="data-table" id="table-target-schema">
+                <thead>
+                  <tr><th>Target Field</th><th>Target Type</th><th>Nullable</th><th>Constraints / Invariants</th></tr>
+                </thead>
+                <tbody id="tbody-target-schema"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sample Records Preview -->
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">Raw Sample Records (Dirty Ingestion Inspection)</h3>
+            <span class="badge-pill">First 10 of 1,000 Records</span>
+          </div>
+          <div class="table-wrapper">
+            <table class="data-table" id="table-sample-records">
+              <thead id="thead-sample-records"></thead>
+              <tbody id="tbody-sample-records"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= TAB 2: AI MAPPING STUDIO ================= -->
+      <section class="view-panel" id="tab-mapping">
+        <div class="section-header">
+          <div>
+            <h2 class="section-title">Agentic Mapping Studio & Versioning Governance</h2>
+            <p class="section-desc">Review AI-suggested pure transformations, risk ratings, and answer clarification questions.</p>
+          </div>
+          <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <select id="select-plan-version" class="btn btn-secondary" style="padding: 0.5rem 1rem;">
+              <option value="1">Plan v1 (PROPOSED)</option>
+            </select>
+            <button id="btn-save-as-new-version" class="btn btn-secondary">Fork New Version</button>
+          </div>
+        </div>
+
+        <!-- AI Copilot Rationale & Clarifications -->
+        <div class="ai-copilot-box">
+          <div class="copilot-header">
+            <span class="copilot-badge">AI COPILOT</span>
+            <h3 style="font-size: 1rem; font-weight: 600;">Autonomous Inspection & Mapping Rationales</h3>
+          </div>
+          <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1.25rem;">
+            The AI agent inspected the schemas and profiled 1,000 records using the inspection toolset. It identified 3 critical ambiguities requiring human policy decisions:
+          </p>
+
+          <div id="clarifications-container"></div>
+        </div>
+
+        <!-- Visual Mapping Table -->
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">Field Transformation & Mapping Matrix</h3>
+            <span class="badge-pill" id="badge-plan-status-text">Status: PROPOSED</span>
+          </div>
+          <div class="mapping-studio" id="mapping-studio-list"></div>
+        </div>
+      </section>
+
+      <!-- ================= TAB 3: DETERMINISTIC DRY-RUN ================= -->
+      <section class="view-panel" id="tab-dryrun">
+        <div class="section-header">
+          <div>
+            <h2 class="section-title">Deterministic Dry-Run Simulation & Quarantine Explorer</h2>
+            <p class="section-desc">Executes pure transform pipeline on 100% of bounded records without writing to target store.</p>
+          </div>
+          <button id="btn-execute-dry-run-main" class="btn btn-primary">
+            <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/></svg>
+            Execute Dry-Run Simulation
+          </button>
+        </div>
+
+        <!-- Dry Run Stats -->
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-label">Total Attempted</div>
+            <div class="stat-value" id="dry-stat-total">-</div>
+            <div class="stat-sub">100% evaluated</div>
+          </div>
+          <div class="stat-card" style="border-color: rgba(16, 185, 129, 0.4);">
+            <div class="stat-label">Accepted (Valid)</div>
+            <div class="stat-value" style="color: var(--accent-emerald);" id="dry-stat-accepted">-</div>
+            <div class="stat-sub">Meets all target constraints</div>
+          </div>
+          <div class="stat-card" style="border-color: rgba(244, 63, 94, 0.4);">
+            <div class="stat-label">Quarantined (Rejected)</div>
+            <div class="stat-value" style="color: var(--accent-rose);" id="dry-stat-rejected">-</div>
+            <div class="stat-sub">Field-level error evidence preserved</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Simulation Latency</div>
+            <div class="stat-value" id="dry-stat-time">-</div>
+            <div class="stat-sub">Pure in-memory execution</div>
+          </div>
+        </div>
+
+        <!-- Field Error Breakdown -->
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">Field-Level Error Distribution</h3>
+            <span class="badge-pill">Violations Breakdown</span>
+          </div>
+          <div id="dry-run-error-breakdown" style="display: flex; flex-wrap: wrap; gap: 0.75rem;"></div>
+        </div>
+
+        <!-- Quarantine Ledger Table -->
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">Quarantine Ledger & Forensic Error Evidence</h3>
+            <span class="badge-pill" id="quarantine-count-badge">0 Records</span>
+          </div>
+          <div class="table-wrapper">
+            <table class="data-table" id="table-quarantine-ledger">
+              <thead>
+                <tr>
+                  <th>Row #</th>
+                  <th>Natural Key</th>
+                  <th>Violated Target Field</th>
+                  <th>Rule / Constraint</th>
+                  <th>Error Diagnostics</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="tbody-quarantine-ledger">
+                <tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 2rem;">Run Dry-Run simulation to view quarantined records.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= TAB 4: MOCK TARGET STORE & EXECUTION ================= -->
+      <section class="view-panel" id="tab-execution">
+        <div class="section-header">
+          <div>
+            <h2 class="section-title">Mock Target Store & Transactional Execution</h2>
+            <p class="section-desc">Execute approved migration into SQLite ACID store with idempotency & 1-click rollback.</p>
+          </div>
+          <div style="display: flex; gap: 0.65rem; flex-wrap: wrap;">
+            <button id="btn-execute-migration-main" class="btn btn-primary" style="background: linear-gradient(135deg, #8b5cf6, #ec4899);" disabled>
+              Execute Approved Migration
+            </button>
+            <button id="btn-retry-migration" class="btn btn-secondary" title="Test idempotency: re-running should insert 0 duplicates" disabled>
+              <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+              Retry (Idempotency)
+            </button>
+            <button id="btn-export-target-csv" class="btn btn-secondary" title="Download migrated records as CSV">
+              <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+              Export Target CSV
+            </button>
+            <button id="btn-export-quarantine-csv" class="btn btn-secondary" title="Download quarantine error report as CSV">
+              <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+              Export Quarantine CSV
+            </button>
+            <button id="btn-rollback-migration" class="btn btn-danger" disabled>
+              <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/></svg>
+              Rollback
+            </button>
+          </div>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-label">Target Table Rows</div>
+            <div class="stat-value" id="target-stat-rows">0</div>
+            <div class="stat-sub">SQLite 'customers' table</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Total Balance Due</div>
+            <div class="stat-value" id="target-stat-balance">$0.00</div>
+            <div class="stat-sub">Sum of balances in USD</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Last Snapshot ID</div>
+            <div class="stat-value mono" style="font-size: 1rem; color: #a5b4fc;" id="target-stat-snapshot">None</div>
+            <div class="stat-sub">Pre-execution state snapshot</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Duplicate Prevention</div>
+            <div class="stat-value" style="color: var(--accent-emerald);" id="target-stat-duplicates">Active</div>
+            <div class="stat-sub">Natural key unique constraint</div>
+          </div>
+        </div>
+
+        <!-- Target Data Table -->
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">Live SQLite Target Table (`customers`)</h3>
+            <span class="badge-pill" id="target-records-count-badge">0 Rows Loaded</span>
+          </div>
+          <div class="table-wrapper">
+            <table class="data-table" id="table-target-data">
+              <thead>
+                <tr>
+                  <th>UUID</th>
+                  <th>Natural Key</th>
+                  <th>First Name</th>
+                  <th>Last Name</th>
+                  <th>Email</th>
+                  <th>Phone (E.164)</th>
+                  <th>Joined At</th>
+                  <th>Status</th>
+                  <th>Balance Due</th>
+                  <th>Risk Tier</th>
+                  <th>Country</th>
+                </tr>
+              </thead>
+              <tbody id="tbody-target-data">
+                <tr><td colspan="11" style="text-align: center; color: var(--text-muted); padding: 2.5rem;">Target store is currently empty. Approve plan and execute migration.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="table-pagination" style="display: flex; justify-content: space-between; align-items: center; padding: 0.85rem 1.25rem; border-top: 1px solid var(--border-glass); background: rgba(15, 23, 42, 0.4);">
+            <span id="target-pagination-info" style="color: var(--text-muted); font-size: 0.85rem;">Showing 0 to 0 of 0 records</span>
+            <div style="display: flex; gap: 0.5rem; align-items: center;">
+              <button id="btn-target-prev" class="btn btn-secondary" style="padding: 0.35rem 0.75rem; font-size: 0.8rem;" disabled>Previous</button>
+              <span id="target-page-num" class="mono" style="font-size: 0.85rem; color: #a5b4fc; padding: 0 0.5rem;">Page 1</span>
+              <button id="btn-target-next" class="btn btn-secondary" style="padding: 0.35rem 0.75rem; font-size: 0.8rem;" disabled>Next</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= TAB 5: RECONCILIATION & AUDIT ================= -->
+      <section class="view-panel" id="tab-reconciliation">
+        <div class="section-header">
+          <div>
+            <h2 class="section-title">Reconciliation Invariants & Forensic Audit Trail</h2>
+            <p class="section-desc">Mathematical verification of mass conservation, zero drops, and immutable event history.</p>
+          </div>
+          <button id="btn-refresh-reconciliation" class="btn btn-secondary">
+            Refresh Reconciliation
+          </button>
+        </div>
+
+        <!-- Parity Equation Hero -->
+        <div class="parity-hero">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h3 style="font-size: 1.15rem; font-weight: 700;">Record Mass Conservation Parity Equation</h3>
+            <span class="risk-tag risk-low" id="parity-verdict-tag">PARITY PENDING</span>
+          </div>
+
+          <div class="parity-equation">
+            <div class="equation-box">
+              <div class="equation-val" id="recon-eq-source">1,000</div>
+              <div class="equation-label">Source Records</div>
+            </div>
+            <div class="operator">=</div>
+            <div class="equation-box" style="border-color: rgba(16, 185, 129, 0.4);">
+              <div class="equation-val" style="color: var(--accent-emerald);" id="recon-eq-target">0</div>
+              <div class="equation-label">Target Accepted</div>
+            </div>
+            <div class="operator">+</div>
+            <div class="equation-box" style="border-color: rgba(244, 63, 94, 0.4);">
+              <div class="equation-val" style="color: var(--accent-rose);" id="recon-eq-quar">0</div>
+              <div class="equation-label">Quarantined</div>
+            </div>
+            <div class="operator">+</div>
+            <div class="equation-box">
+              <div class="equation-val" id="recon-eq-unaccounted">0</div>
+              <div class="equation-label">Unaccounted Delta</div>
+            </div>
+          </div>
+          
+          <div id="recon-invariants-summary" style="font-size: 0.85rem; color: var(--text-secondary); text-align: center;">
+            Execute a migration to compute mathematical checksums and parity verification.
+          </div>
+        </div>
+
+        <!-- Audit Event History -->
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">Immutable Audit Ledger & Event History</h3>
+            <span class="badge-pill">Governance & Provenance</span>
+          </div>
+          <div class="table-wrapper">
+            <table class="data-table" id="table-audit-trail">
+              <thead>
+                <tr>
+                  <th>Timestamp</th>
+                  <th>Event Type</th>
+                  <th>Actor</th>
+                  <th>Details & Payload Summary</th>
+                </tr>
+              </thead>
+              <tbody id="tbody-audit-trail"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Raw Record Detail Modal -->
+  <div class="modal-overlay" id="record-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="modal-title" style="font-weight: 700;">Quarantine Record Evidence</h3>
+        <button class="modal-close" id="modal-close-btn">&times;</button>
+      </div>
+      <div id="modal-body"></div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div id="toast-container"></div>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>
