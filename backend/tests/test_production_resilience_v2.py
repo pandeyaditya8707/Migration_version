@@ -183,3 +183,83 @@ def test_system_logs_subsystem_api(client):
     res_after = client.get("/api/logs?limit=50&level=ALL")
     assert res_after.status_code == 200
     assert len(res_after.json()["logs"]) == 0
+
+def test_standalone_logs_route(client):
+    """Verifies that GET /logs serves the standalone HTML log explorer page."""
+    res = client.get("/logs")
+    assert res.status_code == 200
+    assert "text/html" in res.headers["content-type"]
+    assert "Autonomous Server &amp; AI Copilot Diagnostics" in res.text or "Autonomous Server & AI Copilot Diagnostics" in res.text
+    assert "/api/logs" in res.text
+
+def test_all_json_and_csv_input_types_mode2(client, monkeypatch):
+    """Verifies that Mode 2 upload handles ALL input formats without 502 or 500:
+    - JSON Array
+    - JSON Object with 'records'
+    - JSON Object with 'data'
+    - JSON Object with 'invoices'
+    - Single JSON Object
+    - NDJSON / JSON Lines
+    - Semicolon-delimited CSV
+    - Tab-delimited TSV
+    - UTF-8 with BOM
+    """
+    monkeypatch.setattr(ollama_agent, "_call_ollama_llm", mock_dynamic_plan)
+
+    # 1. Standard JSON array
+    json_array = json.dumps([
+        {"inv_id": "I-1", "client": "Alpha", "amount": 100.0},
+        {"inv_id": "I-2", "client": "Beta", "amount": 200.0}
+    ])
+    r1 = client.post("/api/v2/upload/source", files={"file": ("invoices.json", json_array.encode("utf-8"), "application/json")})
+    assert r1.status_code == 200
+    assert r1.json()["total_records"] == 2
+    assert "inv_id" in [f["name"] for f in r1.json()["source_schema"]["fields"]]
+
+    # 2. JSON with 'records' wrapper
+    json_records = json.dumps({
+        "status": "success",
+        "records": [
+            {"order_no": "ORD-1", "item": "Widget", "qty": 10},
+            {"order_no": "ORD-2", "item": "Gadget", "qty": 5}
+        ]
+    })
+    r2 = client.post("/api/v2/upload/source", files={"file": ("dataset.json", json_records.encode("utf-8"), "application/json")})
+    assert r2.status_code == 200
+    assert r2.json()["total_records"] == 2
+
+    # 3. JSON with 'invoices' wrapper
+    json_invoices = json.dumps({
+        "invoices": [
+            {"code": "INV-100", "due": 500},
+            {"code": "INV-200", "due": 750}
+        ]
+    })
+    r3 = client.post("/api/v2/upload/source", files={"file": ("data.json", json_invoices.encode("utf-8"), "application/json")})
+    assert r3.status_code == 200
+    assert r3.json()["total_records"] == 2
+
+    # 4. NDJSON / JSON Lines
+    ndjson = '{"user_id": 1, "name": "Alice"}\n{"user_id": 2, "name": "Bob"}\n{"user_id": 3, "name": "Charlie"}'
+    r4 = client.post("/api/v2/upload/source", files={"file": ("stream.ndjson", ndjson.encode("utf-8"), "text/plain")})
+    assert r4.status_code == 200
+    assert r4.json()["total_records"] == 3
+
+    # 5. Semicolon-delimited CSV
+    csv_semi = "id;product;price\nP-1;Laptop;1200\nP-2;Mouse;25\n"
+    r5 = client.post("/api/v2/upload/source", files={"file": ("products.csv", csv_semi.encode("utf-8"), "text/csv")})
+    assert r5.status_code == 200
+    assert r5.json()["total_records"] == 2
+    assert "product" in [f["name"] for f in r5.json()["source_schema"]["fields"]]
+
+    # 6. Tab-delimited TSV
+    tsv = "code\tcity\tpop\nNYC\tNew York\t8000000\nLON\tLondon\t9000000\n"
+    r6 = client.post("/api/v2/upload/source", files={"file": ("cities.tsv", tsv.encode("utf-8"), "text/tab-separated-values")})
+    assert r6.status_code == 200
+    assert r6.json()["total_records"] == 2
+
+    # 7. UTF-8 with BOM
+    csv_bom = "\ufeffaccount_id,balance\nACC-1,500.00\nACC-2,950.00\n"
+    r7 = client.post("/api/v2/upload/source", files={"file": ("bom_data.csv", csv_bom.encode("utf-8"), "text/csv")})
+    assert r7.status_code == 200
+    assert r7.json()["total_records"] == 2

@@ -1,4 +1,6 @@
 from __future__ import annotations
+import csv
+import io
 import json
 import os
 import re
@@ -6,6 +8,71 @@ from typing import Any, Dict, List, Optional
 from ..engine.transforms import apply_transformation
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
+
+def parse_any_dataset_payload(content_str: str, filename: str = "") -> List[Dict[str, Any]]:
+    """Extensively parses any JSON (array, object, wrapped list, NDJSON/JSON-Lines)
+    or delimited text (CSV, TSV, semicolon, pipe) into a normalized list of dicts.
+    """
+    raw = content_str.strip()
+    if not raw:
+        return []
+
+    # Strip UTF-8 BOM if present
+    if raw.startswith("\ufeff"):
+        raw = raw[1:].strip()
+
+    # 1. Try standard JSON first
+    if raw.startswith("{") or raw.startswith("[") or filename.lower().endswith(".json"):
+        try:
+            data = json.loads(raw)
+            if isinstance(data, list):
+                return [r for r in data if isinstance(r, dict)]
+            elif isinstance(data, dict):
+                for key in ("records", "data", "items", "results", "rows", "invoices", "orders", "customers", "entries", "payload"):
+                    if key in data and isinstance(data[key], list):
+                        return [r for r in data[key] if isinstance(r, dict)]
+                return [data]
+        except Exception:
+            pass
+
+    # 2. Try JSON Lines / NDJSON (one JSON object per line)
+    lines = [line.strip() for line in raw.splitlines() if line.strip()]
+    if lines and all(l.startswith("{") and l.endswith("}") for l in lines[:min(10, len(lines))]):
+        ndjson_records = []
+        try:
+            for line in lines:
+                parsed = json.loads(line)
+                if isinstance(parsed, dict):
+                    ndjson_records.append(parsed)
+            if ndjson_records:
+                return ndjson_records
+        except Exception:
+            pass
+
+    # 3. Delimited Text Parser (CSV, TSV, Semicolon, Pipe)
+    first_line = lines[0] if lines else ""
+    delimiter = ","
+    if "\t" in first_line:
+        delimiter = "\t"
+    elif ";" in first_line and first_line.count(";") > first_line.count(","):
+        delimiter = ";"
+    elif "|" in first_line and first_line.count("|") > first_line.count(","):
+        delimiter = "|"
+
+    try:
+        reader = csv.DictReader(io.StringIO(raw), delimiter=delimiter)
+        records = [dict(row) for row in reader if any(v is not None and str(v).strip() != "" for v in row.values())]
+        if records:
+            return records
+    except Exception:
+        pass
+
+    # Fallback standard comma DictReader
+    try:
+        reader = csv.DictReader(io.StringIO(raw))
+        return [dict(row) for row in reader]
+    except Exception as e:
+        raise ValueError(f"Could not parse payload as JSON, NDJSON, or CSV: {e}")
 
 def load_source_schema() -> Dict[str, Any]:
     path = os.path.join(DATA_DIR, "source_schema.json")
@@ -27,9 +94,18 @@ def infer_schema_from_records(records: List[Dict[str, Any]], dataset_name: str =
     if not records:
         return {"schema_id": "empty_dataset", "name": dataset_name, "description": "Empty dataset", "fields": []}
     
-    first = records[0]
+    # Collect all unique columns across all records
+    all_cols = []
+    seen = set()
+    for r in records:
+        if isinstance(r, dict):
+            for k in r.keys():
+                if k not in seen:
+                    seen.add(k)
+                    all_cols.append(k)
+    
     fields = []
-    for col in first.keys():
+    for col in all_cols:
         values = [r.get(col) for r in records if r.get(col) is not None and str(r.get(col)).strip() != ""]
         nullable = len(values) < len(records)
         

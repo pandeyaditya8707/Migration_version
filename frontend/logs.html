@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Autonomous Server & AI Copilot Logs — Migration Workbench</title>
+  <link rel="stylesheet" href="/css/style.css?v=3.5.0">
+  <style>
+    body {
+      background: #09090b;
+      color: #e4e4e7;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      margin: 0;
+      padding: 0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .logs-header {
+      background: #18181b;
+      border-bottom: 1px solid #27272a;
+      padding: 1rem 1.5rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+    .pulse-dot {
+      width: 8px;
+      height: 8px;
+      background: #10b981;
+      border-radius: 50%;
+      display: inline-block;
+      box-shadow: 0 0 8px #10b981;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+      70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 1rem;
+      padding: 1.25rem 1.5rem;
+      background: #09090b;
+    }
+    .stat-card {
+      background: #18181b;
+      border: 1px solid #27272a;
+      border-radius: 8px;
+      padding: 0.85rem 1rem;
+    }
+    .stat-val {
+      font-size: 1.4rem;
+      font-weight: 700;
+      margin-top: 0.2rem;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .toolbar {
+      padding: 0.75rem 1.5rem;
+      background: #121215;
+      border-top: 1px solid #27272a;
+      border-bottom: 1px solid #27272a;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .log-terminal {
+      flex: 1;
+      margin: 1rem 1.5rem;
+      background: #09090b;
+      border: 1px solid #27272a;
+      border-radius: 8px;
+      padding: 1rem;
+      overflow-y: auto;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.78rem;
+      line-height: 1.65;
+      max-height: calc(100vh - 280px);
+    }
+    .btn-action {
+      background: #27272a;
+      color: #e4e4e7;
+      border: 1px solid #3f3f46;
+      border-radius: 6px;
+      padding: 0.4rem 0.8rem;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      transition: all 0.15s ease;
+      text-decoration: none;
+    }
+    .btn-action:hover {
+      background: #3f3f46;
+      color: #ffffff;
+    }
+    .filter-btn {
+      background: transparent;
+      border: 1px solid #3f3f46;
+      color: #a1a1aa;
+      border-radius: 9999px;
+      padding: 0.25rem 0.75rem;
+      font-size: 0.72rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .filter-btn.active {
+      background: #2563eb;
+      color: #ffffff;
+      border-color: #2563eb;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Header -->
+  <header class="logs-header">
+    <div style="display: flex; align-items: center; gap: 0.85rem;">
+      <a href="/" class="btn-action">← Return to Workbench</a>
+      <div>
+        <h1 style="font-size: 1.05rem; font-weight: 700; margin: 0; color: #f4f4f5; display: flex; align-items: center; gap: 0.5rem;">
+          <span>Autonomous Server & AI Copilot Diagnostics</span>
+          <span class="pulse-dot" id="live-indicator"></span>
+        </h1>
+        <p style="font-size: 0.75rem; color: #a1a1aa; margin: 0.15rem 0 0 0;">
+          Real-time buffer streaming directly from Python backend (<span id="buffer-source">Standalone /logs Console</span>)
+        </p>
+      </div>
+    </div>
+    <div style="display: flex; gap: 0.5rem; align-items: center;">
+      <button class="btn-action" onclick="fetchLogs()">🔄 Refresh Now</button>
+      <button class="btn-action" onclick="clearLogs()">🧹 Clear Buffer</button>
+      <button class="btn-action" onclick="downloadLogs()" style="background: #2563eb; border-color: #2563eb;">⬇️ Export .log</button>
+    </div>
+  </header>
+
+  <!-- Statistics Counters -->
+  <section class="stats-grid">
+    <div class="stat-card">
+      <div style="font-size: 0.7rem; color: #a1a1aa; text-transform: uppercase; font-weight: 600;">Total Captured</div>
+      <div class="stat-val" id="stat-total" style="color: #60a5fa;">0</div>
+    </div>
+    <div class="stat-card">
+      <div style="font-size: 0.7rem; color: #a1a1aa; text-transform: uppercase; font-weight: 600;">Errors</div>
+      <div class="stat-val" id="stat-errors" style="color: #f87171;">0</div>
+    </div>
+    <div class="stat-card">
+      <div style="font-size: 0.7rem; color: #a1a1aa; text-transform: uppercase; font-weight: 600;">Warnings</div>
+      <div class="stat-val" id="stat-warnings" style="color: #fbbf24;">0</div>
+    </div>
+    <div class="stat-card">
+      <div style="font-size: 0.7rem; color: #a1a1aa; text-transform: uppercase; font-weight: 600;">Info Events</div>
+      <div class="stat-val" id="stat-info" style="color: #34d399;">0</div>
+    </div>
+  </section>
+
+  <!-- Toolbar & Filters -->
+  <div class="toolbar">
+    <div style="display: flex; gap: 0.4rem; align-items: center;">
+      <span style="font-size: 0.75rem; color: #71717a; margin-right: 0.35rem;">Filter:</span>
+      <button class="filter-btn active" id="filter-ALL" onclick="setFilter('ALL')">ALL</button>
+      <button class="filter-btn" id="filter-ERROR" onclick="setFilter('ERROR')">ERROR Only</button>
+      <button class="filter-btn" id="filter-WARNING" onclick="setFilter('WARNING')">WARNING Only</button>
+      <button class="filter-btn" id="filter-INFO" onclick="setFilter('INFO')">INFO Only</button>
+    </div>
+    <div style="display: flex; gap: 1rem; align-items: center;">
+      <input type="text" id="log-search-input" placeholder="🔍 Search logs..." oninput="filterRenderedLogs()"
+        style="background: #18181b; border: 1px solid #3f3f46; color: #f4f4f5; border-radius: 6px; padding: 0.35rem 0.65rem; font-size: 0.76rem; width: 240px;">
+      <label style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.75rem; color: #a1a1aa; cursor: pointer;">
+        <input type="checkbox" id="auto-refresh-toggle" checked onchange="toggleAutoRefresh()"> Auto-poll (2s)
+      </label>
+      <label style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.75rem; color: #a1a1aa; cursor: pointer;">
+        <input type="checkbox" id="stick-to-bottom-toggle" checked> Stick to bottom
+      </label>
+    </div>
+  </div>
+
+  <!-- Terminal Display -->
+  <div class="log-terminal" id="terminal-body">
+    <div style="color: #71717a;">Connecting to live server log buffer...</div>
+  </div>
+
+  <script>
+    let currentLogs = [];
+    let currentFilter = 'ALL';
+    let pollInterval = null;
+
+    async function fetchLogs() {
+      try {
+        const res = await fetch(`/api/logs?limit=300&level=ALL`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        currentLogs = data.logs || [];
+        updateCounters(currentLogs);
+        filterRenderedLogs();
+      } catch (err) {
+        document.getElementById('terminal-body').innerHTML = 
+          `<div style="color: #f87171;">⚠️ Failed to connect to /api/logs: ${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    function updateCounters(logs) {
+      document.getElementById('stat-total').textContent = logs.length;
+      document.getElementById('stat-errors').textContent = logs.filter(l => l.level === 'ERROR').length;
+      document.getElementById('stat-warnings').textContent = logs.filter(l => l.level === 'WARNING').length;
+      document.getElementById('stat-info').textContent = logs.filter(l => l.level === 'INFO').length;
+    }
+
+    function setFilter(level) {
+      currentFilter = level;
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.toggle('active', b.id === `filter-${level}`));
+      filterRenderedLogs();
+    }
+
+    function filterRenderedLogs() {
+      const search = (document.getElementById('log-search-input').value || '').toLowerCase().trim();
+      let filtered = currentLogs;
+      if (currentFilter !== 'ALL') {
+        filtered = filtered.filter(l => l.level === currentFilter);
+      }
+      if (search) {
+        filtered = filtered.filter(l => 
+          (l.message && l.message.toLowerCase().includes(search)) ||
+          (l.subsystem && l.subsystem.toLowerCase().includes(search)) ||
+          (l.level && l.level.toLowerCase().includes(search))
+        );
+      }
+      renderLogs(filtered);
+    }
+
+    function renderLogs(logs) {
+      const container = document.getElementById('terminal-body');
+      if (logs.length === 0) {
+        container.innerHTML = '<div style="color: #71717a;">No log entries match the selected filters.</div>';
+        return;
+      }
+      const html = logs.map(l => {
+        let badgeStyle = 'background: #27272a; color: #a1a1aa;';
+        let msgColor = '#d4d4d8';
+        if (l.level === 'ERROR') {
+          badgeStyle = 'background: rgba(239, 68, 68, 0.25); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4);';
+          msgColor = '#fca5a5';
+        } else if (l.level === 'WARNING') {
+          badgeStyle = 'background: rgba(245, 158, 11, 0.25); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4);';
+          msgColor = '#fde68a';
+        } else if (l.level === 'INFO') {
+          badgeStyle = 'background: rgba(59, 130, 246, 0.2); color: #93c5fd;';
+          msgColor = '#e4e4e7';
+        }
+        return `
+          <div style="margin-bottom: 0.3rem; word-break: break-word;">
+            <span style="color: #71717a;">[${escapeHtml(l.timestamp)}]</span>
+            <span style="display: inline-block; padding: 0.05rem 0.35rem; border-radius: 4px; font-size: 0.68rem; font-weight: 700; ${badgeStyle}">${escapeHtml(l.level)}</span>
+            <span style="color: #a1a1aa; font-weight: 600;">[${escapeHtml(l.subsystem || 'system')}]</span>
+            <span style="color: ${msgColor};">${escapeHtml(l.message)}</span>
+          </div>
+        `;
+      }).join('');
+
+      container.innerHTML = html;
+      if (document.getElementById('stick-to-bottom-toggle').checked) {
+        container.scrollTop = container.scrollHeight;
+      }
+    }
+
+    async function clearLogs() {
+      if (!confirm('Flush all in-memory server logs?')) return;
+      try {
+        await fetch('/api/logs/clear', { method: 'POST' });
+        fetchLogs();
+      } catch (err) {
+        alert('Failed to clear logs: ' + err.message);
+      }
+    }
+
+    function downloadLogs() {
+      const text = currentLogs.map(l => `[${l.timestamp}] [${l.level}] [${l.subsystem || 'system'}] ${l.message}`).join('\n');
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `migration_workbench_${new Date().toISOString().replace(/[:.]/g, '-')}.log`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    function toggleAutoRefresh() {
+      if (document.getElementById('auto-refresh-toggle').checked) {
+        if (!pollInterval) pollInterval = setInterval(fetchLogs, 2000);
+      } else {
+        if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+      }
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    // Start auto polling on load
+    fetchLogs();
+    pollInterval = setInterval(fetchLogs, 2000);
+  </script>
+</body>
+</html>

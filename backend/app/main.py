@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, HTTPException, Query, Body, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 
 logger = logging.getLogger("migration_workbench")
 
@@ -47,6 +47,7 @@ from .engine.profiler import (
     load_target_schema,
     load_sample_records,
     infer_schema_from_records,
+    parse_any_dataset_payload,
 )
 from .engine.agent import MigrationPlannerAgent
 from .engine.transforms import SUPPORTED_RULES
@@ -949,42 +950,38 @@ def ai_diagnose_quarantine_record(payload: Dict[str, Any] = Body(...)) -> Dict[s
 @app.post("/api/v2/source/upload")
 async def upload_v2_source_dataset(
     file: Optional[UploadFile] = File(default=None),
-    raw_json: Optional[List[Dict[str, Any]]] = Body(default=None)
+    raw_json: Optional[Union[List[Dict[str, Any]], Dict[str, Any]]] = Body(default=None)
 ) -> Dict[str, Any]:
     """Mode 2 Universal Dataset Intake: Strictly isolated to Mode 2 Universal Studio.
-
-    Profiles uploaded CSV/JSON, updates ONLY v2_inspection_tools, and invokes Ollama AI
-    strictly for Mode 2 if target schema is set. Zero connection to Mode 1 or plan_manager.
+    Profiles uploaded CSV/TSV/JSON/NDJSON, updates v2_inspection_tools, and invokes Ollama AI
+    with guaranteed semantic fallback.
     """
     records: List[Dict[str, Any]] = []
     filename = "uploaded_dataset"
+
     if file is not None:
         filename = file.filename or "uploaded_dataset"
         content_bytes = await file.read()
         content_str = content_bytes.decode("utf-8", errors="replace")
-        if filename.endswith(".json"):
-            try:
-                data = json.loads(content_str)
-                if isinstance(data, list):
-                    records = data
-                elif isinstance(data, dict):
-                    records = [data]
-            except Exception as e:
-                raise HTTPException(status_code=400, detail=f"Invalid JSON file: {e}")
-        else:
-            # Parse as CSV
-            try:
-                reader = csv.DictReader(io.StringIO(content_str))
-                records = [dict(row) for row in reader]
-            except Exception as e:
-                raise HTTPException(status_code=400, detail=f"Invalid CSV file: {e}")
+        try:
+            records = parse_any_dataset_payload(content_str, filename=filename)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to parse '{filename}': {str(e)}")
     elif raw_json is not None:
-        records = raw_json
+        if isinstance(raw_json, list):
+            records = [r for r in raw_json if isinstance(r, dict)]
+        elif isinstance(raw_json, dict):
+            for key in ("records", "data", "items", "results", "rows", "invoices", "orders", "customers"):
+                if key in raw_json and isinstance(raw_json[key], list):
+                    records = [r for r in raw_json[key] if isinstance(r, dict)]
+                    break
+            if not records:
+                records = [raw_json]
     else:
         raise HTTPException(status_code=400, detail="No file or JSON payload provided")
 
     if not records:
-        raise HTTPException(status_code=400, detail="The uploaded dataset contains 0 records.")
+        raise HTTPException(status_code=400, detail=f"The uploaded dataset '{filename}' contains 0 records or could not be parsed.")
 
     # Clean previous run results for fresh intake
     v2_state["last_execution_result"] = None
@@ -1004,6 +1001,19 @@ async def upload_v2_source_dataset(
     plan = None
     ai_error = None
     active_target = get_v2_active_schema()
+    if not active_target:
+        # Load default orders template if no custom schema has been compiled yet
+        try:
+            from .engine.dynamic_store import TEMPLATES
+            if "orders" in TEMPLATES:
+                default_schema = TEMPLATES["orders"]
+                dynamic_store.compile_and_create_table(default_schema)
+                set_v2_active_schema(default_schema)
+                active_target = default_schema
+                logger.info("Auto-compiled default 'orders' target schema for newly ingested dataset.")
+        except Exception as t_err:
+            logger.debug(f"Default schema auto-compile note: {t_err}")
+
     if active_target:
         try:
             logger.info(f"Synthesizing plan for '{filename}' against target schema '{active_target.get('table_name', 'target')}'...")
@@ -1018,8 +1028,20 @@ async def upload_v2_source_dataset(
             logger.info(f"Generated Mode 2 plan with {len(plan.field_mappings)} field mappings.")
         except Exception as e:
             ai_error = str(e)
-            logger.warning(f"Plan synthesis notice for '{filename}': {ai_error}")
-            set_v2_active_plan(None)
+            logger.warning(f"Plan synthesis notice for '{filename}': {ai_error}. Activating deterministic semantic planner.")
+            try:
+                fallback_agent = MigrationPlannerAgent(inspection_tools=v2_inspection_tools)
+                plan = fallback_agent._generate_dynamic_plan(
+                    source_schema=new_schema,
+                    target_schema=active_target,
+                    profiles=v2_inspection_tools.profile_all_columns(),
+                    plan_version=1
+                )
+                set_v2_active_plan(plan)
+                logger.info(f"Deterministic semantic fallback generated Mode 2 plan with {len(plan.field_mappings)} mappings.")
+            except Exception as fb_err:
+                logger.error(f"Fallback planner failed: {fb_err}")
+                set_v2_active_plan(None)
 
     return {
         "status": "SUCCESS",
@@ -1541,11 +1563,22 @@ if os.path.exists(FRONTEND_DIR):
     def serve_index():
         return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
 
+    @app.get("/logs", response_class=HTMLResponse)
+    def serve_logs_page():
+        logs_file = os.path.join(FRONTEND_DIR, "logs.html")
+        if os.path.exists(logs_file):
+            return FileResponse(logs_file)
+        return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
+
     @app.get("/{full_path:path}")
     def serve_spa_fallback(full_path: str):
         # Don't intercept API routes
         if full_path.startswith("api"):
             raise HTTPException(status_code=404, detail="API endpoint not found")
+        if full_path == "logs":
+            logs_file = os.path.join(FRONTEND_DIR, "logs.html")
+            if os.path.exists(logs_file):
+                return FileResponse(logs_file)
         index_file = os.path.join(FRONTEND_DIR, "index.html")
         if os.path.exists(index_file):
             return FileResponse(index_file)
