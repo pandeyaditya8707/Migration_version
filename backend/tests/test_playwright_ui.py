@@ -17,6 +17,7 @@ from playwright.sync_api import sync_playwright, expect
 
 BASE_URL = "http://127.0.0.1:8000"
 
+@pytest.mark.playwright
 def test_full_browser_ui_flow():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)

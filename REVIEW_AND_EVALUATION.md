@@ -50,7 +50,10 @@ Built on **FastAPI (Python 3.11+)** and **Pydantic v2**:
   - `backend/app/engine/reconciliation.py`: Universal ledger parity auditor and monetary balance checksum verifier.
   - `backend/app/engine/target_store.py` & `dynamic_store.py`: SQLite databases running with Write-Ahead Logging (`WAL` mode).
 
-### Data Integrity & Cryptographic Invariants
+### Data Integrity, Schema Safety & Cryptographic Invariants
+- **Schema-Safe Double-Quoted Identifiers & Whitelisting**: Strict identifier regex (`^[a-zA-Z_][a-zA-Z0-9_]{0,63}$`) and double quotes on all SQL table/column identifiers prevent SQL injection attacks. Single quotes in `CHECK` constraints are escaped (`''`).
+- **Non-Destructive Schema Evolution**: Dynamic tables evolve using safe `ALTER TABLE "table" ADD COLUMN "col" TEXT` rather than destructive `DROP TABLE`.
+- **Plan-Bound Cryptographic Fingerprint**: Approval binds a SHA-256 fingerprint of the exact schema and mappings (`plan.approval_fingerprint`). Any post-approval tampering resets the plan to `DRAFT` and blocks execution.
 - **Deterministic Primary Keys (UUIDv5)**: Uses UUIDv5 derived from natural keys (`legacy_account_id` or designated primary keys) within a defined namespace (`modern-customer-store.prod`), guaranteeing 100% collision-free idempotent retries.
 - **Pre-Run Snapshots & Rollback**: Before every execution, a snapshot of the target database is written to `target_snapshots`. If an engineer requests a rollback, the target table is restored in milliseconds with an immutable audit event recorded.
 
@@ -70,24 +73,38 @@ Built on **FastAPI (Python 3.11+)** and **Pydantic v2**:
 
 ## 5. Error Handling and Logs
 
-### Granular Forensics
-- **Quarantine Records**: Instead of discarding problematic rows, the system stores:
+### Granular Forensics & Unswallowed Persistence Errors
+- **Explicit SQLite Persistence**: All persistence failures in `history.py` (database locks, table absence, corrupt storage) log explicit error traces and raise `RuntimeError` rather than silently swallowing errors.
+- **Quarantine Records & Durability**: Both Mode 1 and Mode 2 persist quarantined records into durable SQLite ledgers (`quarantine_ledger`, `v2_quarantine_ledger`), capturing:
   - `source_row_index`: Original line index from the source data.
   - `source_natural_key`: Primary business key for deduplication and tracking.
   - `source_payload`: Complete original row dictionary.
-  - `errors`: Array of specific field violations, including `field`, `rule`, `error_message`, and `raw_value`.
-- **Structured Audit Ledger**: Every action (`PLAN_CREATED`, `PLAN_APPROVED`, `DRY_RUN_COMPLETED`, `MIGRATION_EXECUTED`, `MIGRATION_ROLLED_BACK`) is recorded in the SQLite `audit_ledger` with actor metadata, timestamps, and parameters.
-- **HTTP Status Codes**: Clear semantic REST responses (`400 Bad Request` for unapproved migrations, `404 Not Found` for missing plans/runs, `502 Bad Gateway` for upstream LLM communication failures).
+  - `errors`: Array of specific field violations (`field`, `rule`, `error_message`, `raw_value`).
+- **Target Data-Type Validation & Required Field Quarantine**: Dry runs validate and coerce types (`int`, `float`, `bool`, `date`, `datetime`) and quarantine rows with unmapped `NOT NULL` target fields (`REQUIRED_FIELD_UNMAPPED`), preventing silent row drops.
+- **Structured Audit Ledger**: Every action (`PLAN_CREATED`, `PLAN_APPROVED`, `DRY_RUN_COMPLETED`, `MIGRATION_EXECUTED`, `MIGRATION_ROLLED_BACK`) is recorded in SQLite audit ledgers (`audit_ledger`, `v2_audit_ledger`) with actor metadata, timestamps, and parameters.
+- **HTTP Status Codes**: Clear semantic REST responses (`400 Bad Request` for unapproved migrations and fingerprint violations, `404 Not Found` for missing plans/runs, `502 Bad Gateway` for upstream LLM communication failures).
 
 ---
 
 ## 6. Testing
 
-### Comprehensive Automated Test Suite
-The repository includes **22+ unit, integration, and browser tests** covering the entire lifecycle:
+### Comprehensive Automated Test Suite (45 Passed, 0 Failed)
+The repository includes **45 automated unit, integration, security, and contract tests** with complete hermetic per-test SQLite database isolation:
 
 ```bash
-backend/tests/test_mode1_strict_1000_records.py
+backend/tests/test_production_security_and_contracts.py (10 Tests)
+  ✓ test_sql_identifier_validation_blocks_injection (PASSED)
+  ✓ test_sql_identifier_validation_allows_safe_names (PASSED)
+  ✓ test_dynamic_store_table_creation_rejects_sql_injection (PASSED)
+  ✓ test_unmapped_required_target_field_quarantines_record (PASSED)
+  ✓ test_target_data_type_coercion_and_calendar_validation (PASSED)
+  ✓ test_plan_bound_approval_fingerprint_generation (PASSED)
+  ✓ test_execution_engine_blocks_tampered_plan (PASSED)
+  ✓ test_mode2_api_blocks_execution_on_tampered_plan (PASSED)
+  ✓ test_mode2_quarantine_and_audit_ledger_durability (PASSED)
+  ✓ test_history_raises_explicit_runtime_error_on_persistence_failure (PASSED)
+
+backend/tests/test_mode1_strict_1000_records.py (6 Tests)
   ✓ test_mode1_source_dataset_strictly_1000_records (PASSED)
   ✓ test_mode1_plan_proposing_and_invariants (PASSED)
   ✓ test_mode1_unapproved_execution_blocked (PASSED)
@@ -95,13 +112,31 @@ backend/tests/test_mode1_strict_1000_records.py
   ✓ test_mode1_execution_idempotency_and_reconciliation (PASSED)
   ✓ test_mode1_no_ai_fix_buttons_or_remediation_in_mode1 (PASSED)
 
-backend/tests/test_migration_pipeline.py
+backend/tests/test_migration_pipeline.py (4 Tests)
   ✓ test_agent_proposes_valid_plan (PASSED)
   ✓ test_deterministic_dry_run (PASSED)
   ✓ test_execution_requires_approval (PASSED)
   ✓ test_full_execution_idempotency_and_rollback (PASSED)
 
-backend/tests/test_transforms.py
+backend/tests/test_v2_dynamic_migration.py (4 Tests)
+  ✓ test_dynamic_database_store_direct (PASSED)
+  ✓ test_v2_api_lifecycle (PASSED)
+  ✓ test_v2_strict_ai_error_handling (PASSED)
+  ✓ test_v2_dataset_upload_complete_isolation_from_mode_1 (PASSED)
+
+backend/tests/test_production_resilience_v2.py (5 Tests)
+  ✓ test_repeated_uploads_mode2_resilience (PASSED)
+  ✓ test_mode2_end_to_end_lifecycle_and_rollback (PASSED)
+  ✓ test_system_logs_subsystem_api (PASSED)
+  ✓ test_standalone_logs_route (PASSED)
+  ✓ test_all_json_and_csv_input_types_mode2 (PASSED)
+
+backend/tests/test_ai_fix_remediation.py (3 Tests)
+  ✓ test_mode1_apply_ai_fix_single_and_all (PASSED)
+  ✓ test_mode2_apply_ai_fix_lifecycle (PASSED)
+  ✓ test_ai_diagnosis_endpoints (PASSED)
+
+backend/tests/test_transforms.py (7 Tests)
   ✓ test_trim_clean (PASSED)
   ✓ test_split_name (PASSED)
   ✓ test_date_to_iso8601 (PASSED)
@@ -110,12 +145,15 @@ backend/tests/test_transforms.py
   ✓ test_enum_lookup (PASSED)
   ✓ test_uuid_v5_determinism (PASSED)
 
-backend/tests/test_api.py
+backend/tests/test_api.py (5 Tests)
   ✓ test_get_schemas (PASSED)
   ✓ test_transforms_catalog (PASSED)
   ✓ test_plans_lifecycle_api (PASSED)
   ✓ test_clarifications_and_mapping_customization (PASSED)
   ✓ test_load_test_records_endpoint (PASSED)
+
+backend/tests/test_custom_dataset.py (1 Test)
+  ✓ test_custom_csv_upload_and_migration (PASSED)
 ```
 
 ### Strict Mode 1 Invariant Verification

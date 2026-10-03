@@ -13,10 +13,11 @@ from ..models.schemas import (
 )
 from .dry_run import DryRunEngine
 from .target_store import TargetDatabaseStore
+from .history import compute_plan_fingerprint
 
 class ExecutionEngine:
-    """Executes approved migration plans into the target store with strict ACID transactions,
-    idempotency guarantees, duplicate prevention, and snapshot-based rollback."""
+    """Executes approved migration plans into the mock target store.
+    Strictly requires plan.status == 'APPROVED' and plan.approval_fingerprint integrity."""
 
     def __init__(self, target_store: Optional[TargetDatabaseStore] = None):
         self.store = target_store or TargetDatabaseStore()
@@ -30,11 +31,18 @@ class ExecutionEngine:
         records: Optional[List[Dict[str, Any]]] = None
     ) -> ExecutionRunResult:
         """Executes an approved migration plan into the mock target store.
-        Strictly requires plan.status == 'APPROVED'."""
+        Strictly requires plan.status == 'APPROVED' and verified approval_fingerprint."""
         if plan.status != "APPROVED":
             raise ValueError(
                 f"Execution rejected: Migration plan '{plan.plan_id}' (v{plan.version}) "
                 f"has status '{plan.status}'. User approval is mandatory prior to execution."
+            )
+
+        expected_fingerprint = compute_plan_fingerprint(plan)
+        if not plan.approval_fingerprint or plan.approval_fingerprint != expected_fingerprint:
+            raise ValueError(
+                f"Security violation: Migration plan '{plan.plan_id}' (v{plan.version}) has missing or invalid "
+                f"approval fingerprint. Plan mappings were altered or approval was forged. Re-approval is mandatory."
             )
 
         start_time = time.perf_counter()

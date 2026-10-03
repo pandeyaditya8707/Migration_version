@@ -3,7 +3,7 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.142+-009688.svg)](https://fastapi.tiangolo.com)
 [![Pydantic v2](https://img.shields.io/badge/pydantic-v2.13+-e92063.svg)](https://docs.pydantic.dev/)
-[![Tests Passing](https://img.shields.io/badge/tests-15%20passed-brightgreen.svg)]()
+[![Tests Passing](https://img.shields.io/badge/tests-45%20passed-brightgreen.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 An enterprise-grade, deterministic **Agentic Data Migration Planner and Reconciliation Workbench** built to eliminate silent data loss during schema migrations. 
@@ -178,24 +178,24 @@ The repository includes a comprehensive automated test suite spanning unit tests
 PYTHONPATH=backend pytest backend/tests/ -v
 ```
 
-### Test Summary (15 Passed, 0 Failed)
-```
-backend/tests/test_api.py::test_get_schemas PASSED                       [  6%]
-backend/tests/test_api.py::test_transforms_catalog PASSED                [ 13%]
-backend/tests/test_api.py::test_plans_lifecycle_api PASSED               [ 20%]
-backend/tests/test_custom_dataset.py::test_custom_csv_upload_and_migration PASSED [ 26%]
-backend/tests/test_migration_pipeline.py::test_agent_proposes_valid_plan PASSED [ 33%]
-backend/tests/test_migration_pipeline.py::test_deterministic_dry_run PASSED [ 40%]
-backend/tests/test_migration_pipeline.py::test_execution_requires_approval PASSED [ 46%]
-backend/tests/test_migration_pipeline.py::test_full_execution_idempotency_and_rollback PASSED [ 53%]
-backend/tests/test_transforms.py::test_trim_clean PASSED                 [ 60%]
-backend/tests/test_transforms.py::test_split_name PASSED                 [ 66%]
-backend/tests/test_transforms.py::test_date_to_iso8601 PASSED            [ 73%]
-backend/tests/test_transforms.py::test_phone_to_e164 PASSED              [ 80%]
-backend/tests/test_transforms.py::test_currency_to_float PASSED          [ 86%]
-backend/tests/test_transforms.py::test_enum_lookup PASSED                [ 93%]
-backend/tests/test_transforms.py::test_uuid_v5_determinism PASSED        [100%]
-======================== 15 passed in 0.71s =========================
+### Test Summary (45 Passed, 0 Failed, Complete Hermetic Isolation)
+The test suite enforces full test isolation with per-test temporary SQLite databases (`tmp_path`), zero cross-test state pollution, negative test cases, and cryptographic anti-tamper proofs:
+
+| Test Module | Coverage Area | Status |
+| :--- | :--- | :--- |
+| `test_production_security_and_contracts.py` | SQL injection defense, unmapped NOT NULL enforcement, type coercion, SHA-256 fingerprint tampering defense, Mode 2 durability, persistence error propagation | **10 Passed** |
+| `test_migration_pipeline.py` | Mode 1 end-to-end pipeline, approval barriers, dry runs, idempotent retry, snapshot rollback | **4 Passed** |
+| `test_v2_dynamic_migration.py` | Mode 2 DDL compilation, dynamic upserts, true rollback undo, LLM config, strict AI isolation | **4 Passed** |
+| `test_mode1_strict_1000_records.py` | Strict 1,000 legacy records intake, mass conservation ($S = T + Q + D$), zero leakage | **6 Passed** |
+| `test_production_resilience_v2.py` | Multi-format input resilience (JSON, nested JSON, CSV), system logs endpoint, snapshot rollback | **5 Passed** |
+| `test_ai_fix_remediation.py` | In-flight AI auto-remediation, single-field and auto-resolve-all, plan invalidation | **3 Passed** |
+| `test_transforms.py` | Pure deterministic transformations (split name, date ISO, phone E.164, currency, UUID v5) | **7 Passed** |
+| `test_api.py` | Core FastAPI route contracts, schema endpoints, clarification questions | **5 Passed** |
+| `test_custom_dataset.py` | User custom CSV upload, dynamic schema inference, and execution | **1 Passed** |
+| **Total** | **Comprehensive Regression & Security Suite** | **45 Passed** |
+
+```bash
+================= 45 passed, 1 deselected, 1 warning in 39.83s =================
 ```
 
 ### Run Live Server E2E Verification

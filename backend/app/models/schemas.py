@@ -68,6 +68,7 @@ class MigrationPlan(BaseModel):
     status: Literal["DRAFT", "PROPOSED", "APPROVED", "SUPERSEDED"] = "PROPOSED"
     approved_by: Optional[str] = None
     approved_at: Optional[str] = None
+    approval_fingerprint: Optional[str] = None
     created_at: str = Field(default_factory=current_utc_iso)
     updated_at: str = Field(default_factory=current_utc_iso)
 

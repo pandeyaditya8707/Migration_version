@@ -21,6 +21,76 @@ class DryRunEngine:
         self.target_schema = target_schema or load_target_schema()
         self.target_field_map = {f["name"]: f for f in self.target_schema.get("fields", [])}
 
+    @staticmethod
+    def _validate_and_coerce_target_type(val: Any, target_type: str) -> Tuple[Any, Optional[str]]:
+        """Validates that a transformed value conforms to the target schema type,
+        coercing where safe or returning a descriptive validation error message."""
+        if val is None:
+            return None, None
+        ttype = target_type.lower().strip()
+
+        # Integer types
+        if ttype in ("int", "integer", "bigint", "smallint"):
+            if isinstance(val, bool):
+                return int(val), None
+            if isinstance(val, (int, float)):
+                if isinstance(val, float) and not val.is_integer():
+                    return val, f"Expected integer but got float with fraction: {val}"
+                return int(val), None
+            val_str = str(val).strip()
+            if re.match(r"^-?\d+$", val_str):
+                return int(val_str), None
+            return val, f"Cannot coerce value '{val}' to INTEGER"
+
+        # Float / Real / Decimal
+        elif ttype in ("float", "real", "double", "numeric", "decimal", "currency"):
+            if isinstance(val, (int, float)):
+                return float(val), None
+            val_str = str(val).replace("$", "").replace("€", "").replace("£", "").replace(",", "").strip()
+            try:
+                parsed = float(val_str)
+                import math
+                if math.isnan(parsed) or math.isinf(parsed):
+                    return val, f"Invalid numeric float value: '{val}'"
+                return parsed, None
+            except ValueError:
+                return val, f"Cannot coerce value '{val}' to REAL/FLOAT"
+
+        # Boolean
+        elif ttype in ("bool", "boolean"):
+            if isinstance(val, bool):
+                return val, None
+            val_str = str(val).lower().strip()
+            if val_str in ("true", "1", "yes", "y", "t"):
+                return True, None
+            elif val_str in ("false", "0", "no", "n", "f"):
+                return False, None
+            return val, f"Cannot coerce value '{val}' to BOOLEAN"
+
+        # Date (ISO-8601 calendar validity: YYYY-MM-DD)
+        elif ttype == "date":
+            val_str = str(val).strip()
+            if len(val_str) >= 10:
+                val_date_part = val_str[:10]
+                if re.match(r"^\d{4}-\d{2}-\d{2}$", val_date_part):
+                    try:
+                        from datetime import datetime
+                        datetime.strptime(val_date_part, "%Y-%m-%d")
+                        return val_date_part, None
+                    except ValueError as e:
+                        return val, f"Invalid calendar date '{val_date_part}': {e}"
+            return val, f"Expected ISO-8601 date (YYYY-MM-DD), but got: '{val}'"
+
+        # DateTime / Timestamp
+        elif ttype in ("datetime", "timestamp"):
+            val_str = str(val).strip()
+            if re.match(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}", val_str):
+                return val_str, None
+            return val, f"Expected ISO-8601 timestamp, but got: '{val}'"
+
+        # Default string or text
+        return str(val) if not isinstance(val, (dict, list)) else val, None
+
     def execute_dry_run(
         self,
         plan: MigrationPlan,
@@ -35,6 +105,13 @@ class DryRunEngine:
 
         active_schema = target_schema or self.target_schema
         active_field_map = {f["name"]: f for f in active_schema.get("fields", [])} if active_schema else self.target_field_map
+
+        # Check for unmapped required target fields
+        mapped_target_fields = {m.target_field for m in plan.field_mappings}
+        unmapped_required_fields = [
+            f["name"] for f in (active_schema.get("fields", []) if active_schema else [])
+            if (not f.get("nullable", True)) and f["name"] not in mapped_target_fields and f.get("default") is None
+        ]
 
         valid_records: List[Dict[str, Any]] = []
         quarantined_records: List[QuarantineRecord] = []
@@ -64,11 +141,25 @@ class DryRunEngine:
                 f"rec_{row_idx}"
             )
 
+            # Pre-check: If required target fields are unmapped in plan, flag error immediately
+            for unmapped_col in unmapped_required_fields:
+                sugg = f"Add a mapping in MigrationPlan for required target field '{unmapped_col}'."
+                row_errors.append(FieldErrorEvidence(
+                    field=unmapped_col,
+                    rule="REQUIRED_FIELD_UNMAPPED",
+                    severity="CRITICAL",
+                    error_message=f"Required target field '{unmapped_col}' (NOT NULL) has no mapping in MigrationPlan.",
+                    raw_value=None,
+                    ai_suggestion=sugg
+                ))
+                field_error_breakdown[unmapped_col] = field_error_breakdown.get(unmapped_col, 0) + 1
+
             for mapping in plan.field_mappings:
                 tgt_field = mapping.target_field
                 tgt_def = active_field_map.get(tgt_field, {})
                 tgt_nullable = tgt_def.get("nullable", True)
                 tgt_constraints = tgt_def.get("constraints") or {}
+                tgt_type = tgt_def.get("data_type") or tgt_def.get("type", "string")
 
                 # Determine source value(s)
                 if len(mapping.source_fields) == 1:
@@ -103,7 +194,6 @@ class DryRunEngine:
                     field_error_breakdown[tgt_field] = field_error_breakdown.get(tgt_field, 0) + 1
                     continue
 
-
                 # Target Constraint Checks
                 # 1. Nullability check
                 if not tgt_nullable and (transformed_val is None or str(transformed_val).strip() == ""):
@@ -124,7 +214,7 @@ class DryRunEngine:
                         continue
 
                 # 2. Enum constraint check
-                allowed_enums = tgt_constraints.get("enum")
+                allowed_enums = tgt_constraints.get("enum") or tgt_constraints.get("allowed_values")
                 if allowed_enums and transformed_val is not None:
                     if transformed_val not in allowed_enums:
                         enum_fb = mapping.parameters.get("fallback") or mapping.parameters.get("fallback_enum")
@@ -162,6 +252,23 @@ class DryRunEngine:
                             ))
                             field_error_breakdown[tgt_field] = field_error_breakdown.get(tgt_field, 0) + 1
                             continue
+
+                # 4. Target Data-Type Validation & Safe Coercion
+                if transformed_val is not None:
+                    coerced_val, type_err = self._validate_and_coerce_target_type(transformed_val, tgt_type)
+                    if type_err:
+                        sugg = f"Configure a transformation rule to convert source value to '{tgt_type}'."
+                        row_errors.append(FieldErrorEvidence(
+                            field=tgt_field,
+                            rule="TYPE_INCOMPATIBILITY",
+                            severity="CRITICAL",
+                            error_message=type_err,
+                            raw_value=src_val,
+                            ai_suggestion=sugg
+                        ))
+                        field_error_breakdown[tgt_field] = field_error_breakdown.get(tgt_field, 0) + 1
+                        continue
+                    transformed_val = coerced_val
 
                 # Valid field evaluation
                 target_row[tgt_field] = transformed_val

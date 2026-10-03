@@ -11,9 +11,9 @@ class TargetDatabaseStore:
     """Mock Target Store using SQLite with WAL mode, ACID transactions, 
     table snapshots for rollback, and strict unique constraints."""
 
-    def __init__(self, db_path: str = DB_PATH):
-        self.db_path = db_path
-        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+    def __init__(self, db_path: Optional[str] = None):
+        self.db_path = db_path or os.environ.get("DATABASE_PATH") or DB_PATH
+        os.makedirs(os.path.dirname(os.path.abspath(self.db_path)), exist_ok=True)
         self.init_database()
 
     def get_connection(self) -> sqlite3.Connection:

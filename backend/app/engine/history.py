@@ -1,14 +1,40 @@
 from __future__ import annotations
 import copy
+import hashlib
 import json
+import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from ..models.schemas import MigrationPlan, AuditLogEvent
 from .target_store import TargetDatabaseStore
 
+logger = logging.getLogger(__name__)
+
 def current_utc_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+def compute_plan_fingerprint(plan: MigrationPlan, target_schema: Optional[Dict[str, Any]] = None) -> str:
+    """Computes a deterministic cryptographic SHA-256 fingerprint binding the plan version,
+    its sorted field mappings, and target schema identity."""
+    canonical_mappings = []
+    for m in sorted(plan.field_mappings, key=lambda x: (x.target_field, tuple(sorted(getattr(x, "source_fields", []))))):
+        canonical_mappings.append({
+            "target_field": m.target_field,
+            "source_fields": sorted(getattr(m, "source_fields", [])),
+            "transformation": m.transformation,
+            "parameters": getattr(m, "parameters", {}),
+        })
+    canonical_payload = {
+        "plan_id": plan.plan_id,
+        "version": plan.version,
+        "source_schema_id": plan.source_schema_id,
+        "target_schema_id": plan.target_schema_id,
+        "mappings": canonical_mappings,
+        "target_schema_hash": hashlib.sha256(json.dumps(target_schema, sort_keys=True).encode("utf-8")).hexdigest() if target_schema else None
+    }
+    dumped = json.dumps(canonical_payload, sort_keys=True)
+    return hashlib.sha256(dumped.encode("utf-8")).hexdigest()
 
 class PlanManager:
     """Manages versioned migration plans, SQLite persistence, and approval state transitions."""
@@ -25,8 +51,9 @@ class PlanManager:
             for rp in raw_plans:
                 plan = MigrationPlan.model_validate(rp)
                 self._plans[plan.version] = plan
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"Failed to load plans from database: {e}", exc_info=True)
+            raise RuntimeError(f"Database persistence failure while loading plans: {e}") from e
 
     def save_plan(self, plan: MigrationPlan, actor: str = "AI Agent") -> MigrationPlan:
         """Saves a plan version in-memory and persistently in SQLite."""
@@ -45,8 +72,9 @@ class PlanManager:
                 created_at=plan.created_at,
                 updated_at=plan.updated_at
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"Failed to persist plan v{plan.version} to database: {e}", exc_info=True)
+            raise RuntimeError(f"Database persistence failure while saving plan v{plan.version}: {e}") from e
 
         evt_suffix = uuid.uuid4().hex[:8]
         self.store.log_audit_event(
@@ -83,7 +111,7 @@ class PlanManager:
         plans = self.list_plans()
         return plans[-1] if plans else None
 
-    def approve_plan(self, version: int, approved_by: str = "Lead Data Engineer") -> MigrationPlan:
+    def approve_plan(self, version: int, approved_by: str = "Lead Data Engineer", target_schema: Optional[Dict[str, Any]] = None) -> MigrationPlan:
         plan = self.get_plan(version)
         if not plan:
             raise ValueError(f"Plan version {version} not found")
@@ -93,6 +121,7 @@ class PlanManager:
         plan.approved_by = approved_by
         plan.approved_at = now_iso
         plan.updated_at = now_iso
+        plan.approval_fingerprint = compute_plan_fingerprint(plan, target_schema)
 
         self.save_plan(plan, actor=approved_by)
 
@@ -104,6 +133,7 @@ class PlanManager:
             details={
                 "plan_id": plan.plan_id,
                 "version": plan.version,
+                "approval_fingerprint": plan.approval_fingerprint,
                 "approved_at": now_iso
             }
         )

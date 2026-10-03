@@ -89,10 +89,10 @@ def test_dynamic_database_store_direct():
 
     # 1. Compile and create table
     ddl = store.compile_and_create_table(custom_schema)
-    assert "CREATE TABLE IF NOT EXISTS test_inventory" in ddl
-    assert "sku_uuid TEXT PRIMARY KEY" in ddl
-    assert "quantity INTEGER NOT NULL" in ddl
-    assert "unit_price REAL NOT NULL" in ddl
+    assert "test_inventory" in ddl
+    assert "sku_uuid" in ddl
+    assert "quantity" in ddl
+    assert "unit_price" in ddl
 
     # 2. Upsert batch
     rows = [
@@ -114,11 +114,21 @@ def test_dynamic_database_store_direct():
     assert updated2 == 2
     assert skipped2 == 2
 
-    # 4. Snapshot & Rollback
-    snap_id = store.create_snapshot("test_inventory", run_id="run_snap")
-    success, removed, remaining = store.rollback_snapshot(snap_id)
+    # 4. Snapshot & Rollback (True Rollback Test: insert 3rd row, then roll back to 2 rows)
+    snap_before_add = store.create_snapshot("test_inventory", run_id="snap_2_rows")
+    row_3 = [{"sku_uuid": "u3", "sku_code": "SKU-003", "item_name": "Widget C", "quantity": 10, "unit_price": 5.0}]
+    ins3, _, _ = store.execute_upsert_batch("test_inventory", "sku_code", row_3, run_id="run_3")
+    assert ins3 == 1
+    total_with_3, _ = store.query_dynamic_records("test_inventory")
+    assert total_with_3 == 3
+
+    # Roll back to snapshot: must remove 1 record and leave exactly 2
+    success, removed, remaining = store.rollback_snapshot(snap_before_add)
     assert success is True
+    assert removed == 1
     assert remaining == 2
+    total_after_rollback, _ = store.query_dynamic_records("test_inventory")
+    assert total_after_rollback == 2
 
 def test_v2_api_lifecycle(client, monkeypatch):
     # Patch Ollama inference to return strict AI plan

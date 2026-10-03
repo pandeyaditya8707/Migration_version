@@ -55,7 +55,7 @@ from .engine.dry_run import DryRunEngine
 from .engine.target_store import TargetDatabaseStore
 from .engine.executor import ExecutionEngine
 from .engine.reconciliation import ReconciliationEngine
-from .engine.history import PlanManager
+from .engine.history import PlanManager, compute_plan_fingerprint
 
 app = FastAPI(
     title="Agentic Data Migration Planner & Reconciliation Workbench",
@@ -468,11 +468,12 @@ def update_plan_clarifications(
                 m.parameters["required"] = True
                 m.parameters["default"] = None
 
-    # If the plan was approved, reset status to PROPOSED upon policy change
+    # If the plan was approved, reset status to DRAFT upon policy change
     if plan.status == "APPROVED":
-        plan.status = "PROPOSED"
+        plan.status = "DRAFT"
         plan.approved_by = None
         plan.approved_at = None
+        plan.approval_fingerprint = None
 
     return plan_manager.save_plan(plan, actor="User Clarification Decision")
 
@@ -499,9 +500,10 @@ def update_plan_mapping(
         plan.field_mappings.append(FieldMapping(**mapping_payload))
 
     if plan.status == "APPROVED":
-        plan.status = "PROPOSED"
+        plan.status = "DRAFT"
         plan.approved_by = None
         plan.approved_at = None
+        plan.approval_fingerprint = None
 
     return plan_manager.save_plan(plan, actor="User Mapping Edit")
 
@@ -587,11 +589,12 @@ def apply_ai_fix_mode1(
                     m.parameters["fallback"] = fb
                     fixes_applied.append(f"Configured fallback='{fb}' for {target_field}")
 
-    # Reset status to PROPOSED so it can be re-evaluated
+    # Reset status to DRAFT so it must be re-evaluated and re-approved
     if plan.status == "APPROVED":
-        plan.status = "PROPOSED"
+        plan.status = "DRAFT"
         plan.approved_by = None
         plan.approved_at = None
+        plan.approval_fingerprint = None
 
     plan_manager.save_plan(plan, actor="AI Auto-Remediation")
 
@@ -676,7 +679,10 @@ def execute_migration(
 
     try:
         return executor.execute_migration(p, actor=req.executed_by, records=inspection_tools.records)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        logger.error(f"Execution failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/rollback")
@@ -1172,11 +1178,26 @@ def approve_v2_plan(payload: Any = Body(default=None)) -> MigrationPlan:
     plan = get_v2_active_plan()
     if not plan:
         raise HTTPException(status_code=404, detail="No active plan to approve. Please compile a target schema and synthesize a plan first.")
+    
+    active_target = get_v2_active_schema()
     plan.status = "APPROVED"
     plan.approved_by = approved_by
     plan.approved_at = current_utc_iso()
+    plan.approval_fingerprint = compute_plan_fingerprint(plan, active_target)
     set_v2_active_plan(plan)
-    logger.info(f"Mode 2 plan v{plan.version} approved by '{approved_by}'.")
+
+    dynamic_store.log_v2_audit_event(
+        event_id=f"evt_v2_appr_{uuid.uuid4().hex[:8]}",
+        event_type="PLAN_APPROVED",
+        actor=approved_by,
+        details={
+            "plan_id": plan.plan_id,
+            "version": plan.version,
+            "approval_fingerprint": plan.approval_fingerprint,
+            "approved_at": plan.approved_at
+        }
+    )
+    logger.info(f"Mode 2 plan v{plan.version} approved by '{approved_by}' with fingerprint {plan.approval_fingerprint[:12]}...")
     return plan
 
 @app.post("/api/v2/plans/dry-run")
@@ -1191,7 +1212,23 @@ def execute_v2_dry_run() -> Dict[str, Any]:
         target_schema=active_target
     )
     v2_state["last_dry_run_summary"] = summary
+    v2_state["last_quarantine_records"] = quars
     dynamic_store.save_state("last_dry_run_summary", summary.model_dump() if hasattr(summary, "model_dump") else summary)
+    
+    # Save quarantine records to durable SQLite ledger
+    dynamic_store.save_v2_quarantine_records(summary.run_id, quars)
+    dynamic_store.log_v2_audit_event(
+        event_id=f"evt_v2_dry_{summary.run_id}",
+        event_type="DRY_RUN_EXECUTED",
+        actor="Mode 2 Simulator",
+        details={
+            "run_id": summary.run_id,
+            "plan_version": plan.version,
+            "total_records": summary.total_source_records,
+            "accepted_count": summary.accepted_count,
+            "quarantined_count": summary.rejected_count
+        }
+    )
     logger.info(f"Mode 2 dry-run: {summary.accepted_count} valid, {summary.rejected_count} quarantined ({summary.total_source_records} total).")
 
     summary_dict = summary.model_dump() if hasattr(summary, "model_dump") else summary.dict()
@@ -1279,7 +1316,10 @@ def apply_ai_fix_mode2(
                 fixes_applied.append(f"Configured fallback='{fb}' for {m.target_field}")
 
     if plan.status == "APPROVED":
-        plan.status = "PROPOSED"
+        plan.status = "DRAFT"
+        plan.approved_by = None
+        plan.approved_at = None
+        plan.approval_fingerprint = None
 
     v2_state["active_plan"] = plan
 
@@ -1291,6 +1331,7 @@ def apply_ai_fix_mode2(
     )
     v2_state["last_dry_run_summary"] = summary
     v2_state["last_quarantine_records"] = quars
+    dynamic_store.save_v2_quarantine_records(summary.run_id, quars)
 
     summary_dict = summary.model_dump() if hasattr(summary, "model_dump") else summary.dict()
     summary_dict["valid_count"] = summary.accepted_count
@@ -1319,14 +1360,22 @@ def execute_v2_migration(
     if plan.status != "APPROVED":
         raise HTTPException(status_code=400, detail="Plan must be approved prior to execution")
 
+    target_schema = get_v2_active_schema() or {}
+    expected_fingerprint = compute_plan_fingerprint(plan, target_schema)
+    if not plan.approval_fingerprint or plan.approval_fingerprint != expected_fingerprint:
+        raise HTTPException(
+            status_code=400,
+            detail="Security violation: Plan has been modified after approval (fingerprint mismatch). Re-approval is mandatory."
+        )
+
     try:
-        target_schema = get_v2_active_schema() or {}
         summary, valids, quars = dry_runner.execute_dry_run(
             plan,
             records=v2_inspection_tools.records,
             target_schema=target_schema
         )
         v2_state["last_dry_run_summary"] = summary
+        v2_state["last_quarantine_records"] = quars
 
         table_name = str(target_schema.get("table_name", "target_records")).strip()
         raw_nk = target_schema.get("natural_key", target_schema.get("primary_key", "id"))
@@ -1346,6 +1395,26 @@ def execute_v2_migration(
             natural_key_field=natural_key,
             rows=valids,
             run_id=run_id
+        )
+
+        # Durable SQLite quarantine records & audit log
+        dynamic_store.save_v2_quarantine_records(run_id, quars)
+        executed_by = "Lead Data Architect"
+        if isinstance(req, dict) and req.get("executed_by"):
+            executed_by = req.get("executed_by")
+        dynamic_store.log_v2_audit_event(
+            event_id=f"evt_v2_exec_{uuid.uuid4().hex[:8]}",
+            event_type="MIGRATION_EXECUTED",
+            actor=executed_by,
+            details={
+                "run_id": run_id,
+                "plan_version": plan.version,
+                "table_name": table_name,
+                "inserted": inserted,
+                "updated": updated,
+                "quarantined": summary.rejected_count,
+                "snapshot_id": snap_id
+            }
         )
 
         now_iso = current_utc_iso()
@@ -1372,6 +1441,17 @@ def execute_v2_migration(
     except Exception as e:
         logger.error(f"execute_v2_migration failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Database Write Error: {str(e)}")
+
+@app.get("/api/v2/quarantine/records")
+def get_v2_quarantine_records(run_id: Optional[str] = None, limit: int = 100) -> Dict[str, Any]:
+    """Retrieves durable quarantine ledger records from SQLite."""
+    total, records = dynamic_store.load_v2_quarantine_records(run_id=run_id, limit=limit)
+    return {"total": total, "records": records}
+
+@app.get("/api/v2/audit/events")
+def get_v2_audit_events(limit: int = 100) -> List[Dict[str, Any]]:
+    """Retrieves durable audit ledger events from SQLite."""
+    return dynamic_store.load_v2_audit_events(limit=limit)
 
 @app.get("/api/v2/target/records")
 def get_v2_target_records(
