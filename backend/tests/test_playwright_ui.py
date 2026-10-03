@@ -11,6 +11,8 @@ Validates:
 """
 
 import pytest
+
+pytest.importorskip("playwright", reason="Playwright is required for browser UI testing")
 from playwright.sync_api import expect, sync_playwright
 
 BASE_URL = "http://127.0.0.1:8000"
