@@ -12,13 +12,19 @@ Validates:
 
 import pytest
 
-pytest.importorskip("playwright", reason="Playwright is required for browser UI testing")
-from playwright.sync_api import expect, sync_playwright
+try:
+    from playwright.sync_api import expect, sync_playwright
+    HAS_PLAYWRIGHT = True
+except ImportError:
+    HAS_PLAYWRIGHT = False
+    expect = None
+    sync_playwright = None
 
 BASE_URL = "http://127.0.0.1:8000"
 
 
 @pytest.mark.playwright
+@pytest.mark.skipif(not HAS_PLAYWRIGHT, reason="Playwright is required for browser UI testing")
 def test_full_browser_ui_flow():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)

@@ -23,7 +23,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install ruff pytest-randomly
+        pip install ruff pytest-randomly pytest-cov
 
     - name: Run Ruff Linting
       run: |
@@ -33,5 +33,5 @@ jobs:
       env:
         PYTHONPATH: backend
       run: |
-        pytest backend/tests/ -m "not playwright" --randomly-seed=1234
-        pytest backend/tests/ -m "not playwright" --randomly-seed=9999
+        pytest backend/tests/ -m "not playwright" --ignore=backend/tests/test_playwright_ui.py --randomly-seed=1234
+        pytest backend/tests/ -m "not playwright" --ignore=backend/tests/test_playwright_ui.py --randomly-seed=9999
