@@ -1496,3 +1496,25 @@ html, body {
   }
 }
 
+
+
+/* ==========================================================================
+   Usability refinements (header wrap, tab navigation, destructive controls)
+   ========================================================================== */
+.nav-actions { flex-wrap: wrap; justify-content: flex-end; row-gap: 0.5rem; }
+/* Primary write action sits apart from the planning controls and cannot be hit by accident */
+.nav-actions .btn-primary { margin-left: 0.75rem; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08); }
+.btn-reset { gap: 0.35rem; }
+.btn-reset-label { font-size: 0.78rem; }
+.recon-note { font-size: 0.78rem; color: var(--text-secondary); text-align: center; max-width: 46rem; margin: 0.75rem auto; line-height: 1.45; }
+.recon-note strong { color: var(--ink-primary); font-weight: 600; }
+
+/* Desktop: wrap the step tabs instead of showing a horizontal scrollbar */
+@media (min-width: 901px) {
+  .tabs-bar { flex-wrap: wrap; overflow-x: visible; }
+}
+/* Mobile: keep one scrollable row, scrollbar hidden */
+@media (max-width: 900px) {
+  .tabs-bar { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  .tabs-bar::-webkit-scrollbar { display: none; }
+}

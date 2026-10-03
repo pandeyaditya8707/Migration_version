@@ -5,12 +5,13 @@ import io
 import json
 import logging
 import os
+import secrets
 import uuid
 from typing import Any
 
-from fastapi import Body, FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import Body, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 logger = logging.getLogger("migration_workbench")
@@ -64,13 +65,32 @@ app = FastAPI(
     version="1.0.0",
 )
 
+# CORS: set ALLOWED_ORIGINS="https://a.example,https://b.example" to restrict. The bundled UI is served
+# from the same origin and needs no CORS at all. Unset keeps the open demo default (and logs a warning).
+_allowed_origins = [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "*").split(",") if o.strip()]
+if _allowed_origins == ["*"]:
+    logger.warning("CORS is open to all origins (ALLOWED_ORIGINS unset). Restrict it before sharing this deployment.")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_allowed_origins,
+    # Browsers reject credentials with a wildcard origin; only enable them for an explicit list.
+    allow_credentials=_allowed_origins != ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def require_api_key_for_mutations(request: Request, call_next):
+    """Opt-in write protection: when WORKBENCH_API_KEY is set, every state-changing /api call
+    (approve, execute, rollback, reset, AI config, uploads...) must carry a matching X-API-Key.
+    Read-only requests and /healthz stay open. Unset = open demo mode."""
+    expected = os.environ.get("WORKBENCH_API_KEY", "")
+    if expected and request.url.path.startswith("/api") and request.method not in ("GET", "HEAD", "OPTIONS"):
+        supplied = request.headers.get("x-api-key", "")
+        if not secrets.compare_digest(supplied.encode(), expected.encode()):
+            return JSONResponse(status_code=401, content={"detail": "Missing or invalid X-API-Key."})
+    return await call_next(request)
 
 
 class WorkbenchLogHandler(logging.Handler):
@@ -332,13 +352,19 @@ def export_target_records(format: str = Query(default="csv")):
 
 @app.get("/api/export/quarantine")
 def export_quarantine_records():
-    """Exports all quarantined records with error evidence as CSV."""
+    """Exports the current run's quarantined records (latest execution, else latest dry run) as CSV."""
     import csv
 
     from fastapi.responses import Response
 
     with target_store.get_connection() as conn:
-        rows = conn.execute("SELECT * FROM quarantine_ledger ORDER BY source_row_index ASC").fetchall()
+        active_run = target_store.get_active_quarantine_run_id()
+        if active_run:
+            rows = conn.execute(
+                "SELECT * FROM quarantine_ledger WHERE run_id = ? ORDER BY source_row_index ASC", (active_run,)
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM quarantine_ledger ORDER BY source_row_index ASC").fetchall()
         if not rows:
             raise HTTPException(status_code=400, detail="Quarantine ledger has 0 records.")
 
@@ -750,6 +776,7 @@ def get_quarantine_records(
     import json
 
     with target_store.get_connection() as conn:
+        run_id = run_id or target_store.get_active_quarantine_run_id()
         if run_id:
             rows = conn.execute(
                 "SELECT * FROM quarantine_ledger WHERE run_id = ? ORDER BY source_row_index ASC LIMIT ?",
@@ -1600,47 +1627,44 @@ def get_v2_reconciliation() -> dict[str, Any]:
     table_name = active_target.get("table_name", "target_records")
     target_count, _ = dynamic_store.query_dynamic_records(table_name=table_name, limit=1)
 
-    quar_count = 0
-    summary = v2_state.get("last_dry_run_summary")
-    if not summary:
-        persisted_summary = dynamic_store.load_state("last_dry_run_summary")
-        if persisted_summary and isinstance(persisted_summary, dict):
-            quar_count = persisted_summary.get("rejected_count", 0)
-    elif hasattr(summary, "rejected_count"):
-        quar_count = summary.rejected_count
-    elif isinstance(summary, dict):
-        quar_count = summary.get("rejected_count", 0)
+    def _field(obj: Any, name: str, default: int = 0) -> int:
+        if obj is None:
+            return default
+        val = obj.get(name, default) if isinstance(obj, dict) else getattr(obj, name, default)
+        return int(val or 0)
 
-    last_exec = v2_state.get("last_execution_result")
-    if not last_exec:
-        persisted_exec = dynamic_store.load_state("last_execution_result")
-        if persisted_exec and isinstance(persisted_exec, dict):
-            ins_count = persisted_exec.get("inserted_count", target_count)
-            upd_count = persisted_exec.get("updated_count", 0)
-        else:
-            ins_count = target_count
-            upd_count = 0
+    last_exec = v2_state.get("last_execution_result") or dynamic_store.load_state("last_execution_result")
+    executed = bool(last_exec)
+
+    if executed:
+        # Everything is taken from ONE execution result, so the equation
+        # source = inserted + updated + unchanged + quarantined is evaluated for a single run.
+        ins_count = _field(last_exec, "inserted_count")
+        upd_count = _field(last_exec, "updated_count")
+        skip_count = _field(last_exec, "skipped_duplicates_count")
+        quar_count = _field(last_exec, "quarantined_count")
+        total_source = _field(last_exec, "total_source_records", total_source)
+        accepted = ins_count + upd_count + skip_count
+        unaccounted = total_source - (accepted + quar_count)  # signed: a negative value means double counting
     else:
-        ins_count = last_exec.inserted_count
-        upd_count = last_exec.updated_count
+        summary = v2_state.get("last_dry_run_summary") or dynamic_store.load_state("last_dry_run_summary")
+        ins_count = upd_count = skip_count = accepted = 0
+        quar_count = _field(summary, "rejected_count")
+        unaccounted = 0
 
-    accounted = (ins_count + upd_count) + quar_count
-    unaccounted = max(0, total_source - accounted) if total_source >= accounted else 0
-
-    verdict = (
-        "PASSED_EXACT"
-        if unaccounted == 0 and quar_count == 0
-        else ("PASSED_WITH_QUARANTINE" if unaccounted == 0 else "DISCREPANCY_DETECTED")
-    )
-    if target_count == 0 and ins_count == 0:
+    if not executed:
         verdict = "PENDING_EXECUTION"
+    elif unaccounted != 0:
+        verdict = "DISCREPANCY_DETECTED"
+    else:
+        verdict = "PASSED_WITH_QUARANTINE" if quar_count else "PASSED_EXACT"
 
     import hashlib
 
     src_hash = hashlib.sha256(f"{total_source}".encode()).hexdigest()[:16]
     tgt_hash = hashlib.sha256(f"{target_count}".encode()).hexdigest()[:16]
 
-    is_zero_drop = (unaccounted == 0) and (target_count > 0 or ins_count > 0)
+    is_zero_drop = executed and unaccounted == 0
 
     return {
         "verdict": verdict,
@@ -1649,6 +1673,8 @@ def get_v2_reconciliation() -> dict[str, Any]:
         "target_records": target_count,
         "inserted_count": ins_count,
         "updated_count": upd_count,
+        "skipped_count": skip_count,
+        "accepted_records": accepted,
         "quarantined_count": quar_count,
         "quarantined_records": quar_count,
         "unaccounted_delta": unaccounted,

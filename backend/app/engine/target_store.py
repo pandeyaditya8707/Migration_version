@@ -183,9 +183,59 @@ class TargetDatabaseStore:
             )
             conn.commit()
 
+    # ------------------------------------------------------------------
+    # Run-scoped ledger queries (single source of truth for reconciliation)
+    # ------------------------------------------------------------------
+    _EXECUTION_EVENTS = ("MIGRATION_EXECUTED", "MIGRATION_RETRIED")
+
+    def _events_for(self, event_types: tuple[str, ...]) -> list[dict[str, Any]]:
+        """Audit events of the given types, newest first (rowid breaks same-second ties)."""
+        marks = ",".join("?" for _ in event_types)
+        with self.get_connection() as conn:
+            rows = conn.execute(
+                f"SELECT event_id, event_type, details FROM audit_ledger "  # noqa: S608 (placeholders only)
+                f"WHERE event_type IN ({marks}) ORDER BY rowid DESC",
+                event_types,
+            ).fetchall()
+        out = []
+        for r in rows:
+            try:
+                details = json.loads(r["details"])
+            except (TypeError, ValueError):
+                details = {}
+            out.append({"event_id": r["event_id"], "event_type": r["event_type"], "details": details})
+        return out
+
+    def get_latest_execution_run_id(self) -> str | None:
+        events = self._events_for(self._EXECUTION_EVENTS)
+        return events[0]["details"].get("run_id") if events else None
+
+    def get_latest_dry_run_id(self) -> str | None:
+        events = self._events_for(("DRY_RUN_EXECUTED",))
+        return events[0]["details"].get("run_id") if events else None
+
+    def get_execution_outcome(self, run_id: str) -> dict[str, Any] | None:
+        """The recorded outcome (inserted/updated/skipped/quarantined) of one execution run."""
+        for ev in self._events_for(self._EXECUTION_EVENTS):
+            if ev["details"].get("run_id") == run_id:
+                return ev["details"]
+        return None
+
+    def is_run_rolled_back(self, run_id: str) -> bool:
+        return any(ev["details"].get("run_id") == run_id for ev in self._events_for(("MIGRATION_ROLLED_BACK",)))
+
+    def count_quarantined(self, run_id: str) -> int:
+        with self.get_connection() as conn:
+            row = conn.execute("SELECT COUNT(*) AS c FROM quarantine_ledger WHERE run_id = ?", (run_id,)).fetchone()
+            return int(row["c"]) if row else 0
+
+    def get_active_quarantine_run_id(self) -> str | None:
+        """The run whose quarantine entries represent the current state: the latest execution if any, else latest dry run."""
+        return self.get_latest_execution_run_id() or self.get_latest_dry_run_id()
+
     def get_audit_trail(self, limit: int = 50) -> list[dict[str, Any]]:
         with self.get_connection() as conn:
-            rows = conn.execute("SELECT * FROM audit_ledger ORDER BY timestamp DESC LIMIT ?", (limit,)).fetchall()
+            rows = conn.execute("SELECT * FROM audit_ledger ORDER BY timestamp DESC, rowid DESC LIMIT ?", (limit,)).fetchall()
             result = []
             for r in rows:
                 d = dict(r)

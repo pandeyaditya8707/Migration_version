@@ -11,8 +11,8 @@ from .target_store import TargetDatabaseStore
 
 
 class ReconciliationEngine:
-    """Performs rigorous post-migration auditing, comparing source totals,
-    target state, and quarantine ledgers to verify zero silent data loss."""
+    """Post-migration audit. Accounting is scoped to ONE execution run:
+    source = accepted (inserted + updated + unchanged) + quarantined."""
 
     def __init__(self, target_store: TargetDatabaseStore | None = None):
         self.store = target_store or TargetDatabaseStore()
@@ -21,40 +21,43 @@ class ReconciliationEngine:
         self, run_id: str, plan_version: int, source_records: list[dict[str, Any]] | None = None
     ) -> ReconciliationReport:
         records = source_records if source_records is not None else load_sample_records()
-        total_source = len(records)
         now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-        # 1. Target store metrics scoped to run_id if specified
+        # 1. Resolve aliases ("latest*", empty) to one concrete run. Every figure below is
+        #    scoped to that single run, so ledger entries of other runs (e.g. the dry run
+        #    whose rejections the execution re-records) can never be counted twice.
+        requested = run_id or ""
+        if not requested or requested.startswith("latest"):
+            resolved = self.store.get_latest_execution_run_id() or self.store.get_latest_dry_run_id() or requested
+        else:
+            resolved = requested
+        run_id = resolved
+
+        outcome = self.store.get_execution_outcome(run_id)
+        rolled_back = bool(outcome) and self.store.is_run_rolled_back(run_id)
+        quarantine_count = self.store.count_quarantined(run_id)
+        target_count_live = self.store.get_customer_count()
+        target_balance_total = self.store.get_financial_aggregate()
+
         with self.store.get_connection() as conn:
-            if run_id and not run_id.startswith("latest_"):
-                tgt_row = conn.execute(
-                    "SELECT COUNT(*) as c, COALESCE(SUM(balance_due), 0.0) as s FROM customers WHERE migration_run_id = ?",
-                    (run_id,),
-                ).fetchone()
-                target_count = tgt_row["c"] if tgt_row and tgt_row["c"] > 0 else self.store.get_customer_count()
-                target_balance_total = (
-                    round(tgt_row["s"], 2) if tgt_row and tgt_row["c"] > 0 else self.store.get_financial_aggregate()
-                )
-            else:
-                target_count = self.store.get_customer_count()
-                target_balance_total = self.store.get_financial_aggregate()
-
-            # 2. Quarantine ledger metrics for this run (or overall)
-            if run_id and not run_id.startswith("latest_"):
-                q_row = conn.execute(
-                    "SELECT COUNT(*) as q_count FROM quarantine_ledger WHERE run_id = ?", (run_id,)
-                ).fetchone()
-                quarantine_count = q_row["q_count"] if q_row else 0
-            else:
-                # Latest dry run or overall quarantine
-                q_row = conn.execute("SELECT COUNT(*) as q_count FROM quarantine_ledger").fetchone()
-                quarantine_count = q_row["q_count"] if q_row else 0
-
-            # Check if there are duplicate natural keys in target
             dup_row = conn.execute(
                 "SELECT natural_key, COUNT(*) as c FROM customers GROUP BY natural_key HAVING c > 1"
             ).fetchall()
             duplicate_count = len(dup_row)
+
+        if outcome:
+            # Source size at the time of the run (the live source may have been replaced since).
+            total_source = int(outcome.get("total_source_records", len(records)))
+            # Every valid row is exactly one of inserted / updated / skipped-unchanged, whichever run
+            # originally wrote it, so a retry that skips rows still accounts for all of them.
+            target_count = (
+                int(outcome.get("inserted_count", 0))
+                + int(outcome.get("updated_count", 0))
+                + int(outcome.get("skipped_duplicates_count", 0))
+            )
+        else:
+            total_source = len(records)
+            target_count = 0
 
         # 3. Source monetary aggregate (dynamically find balance/amount column)
         from .transforms import TransformationRegistry
@@ -81,39 +84,51 @@ class ReconciliationEngine:
         source_balance_sum = round(source_balance_sum, 2)
 
         # 4. Conservation check
-        accounted_total = target_count + quarantine_count
-        unaccounted = total_source - accounted_total
-
-        if target_count == 0 and (quarantine_count == 0 or run_id.startswith("latest_")):
+        if not outcome:
+            # Nothing executed for this run: dry-run rejections are reported, nothing is "missing".
             verdict = "PENDING_EXECUTION"
             mass_conserved = True
             unaccounted = 0
-        elif unaccounted == 0 and quarantine_count == 0:
-            verdict = "PASSED_EXACT"
-            mass_conserved = duplicate_count == 0
-        elif unaccounted == 0 and quarantine_count > 0:
-            verdict = "PASSED_WITH_QUARANTINE"
-            mass_conserved = duplicate_count == 0
+        elif rolled_back:
+            target_count = 0  # target was restored to its pre-run snapshot
+            verdict = "ROLLED_BACK"
+            mass_conserved = True
+            unaccounted = 0
         else:
-            verdict = "DISCREPANCY_DETECTED"
-            mass_conserved = False
+            unaccounted = total_source - (target_count + quarantine_count)
+            if unaccounted != 0:
+                verdict = "DISCREPANCY_DETECTED"
+                mass_conserved = False
+            elif quarantine_count == 0:
+                verdict = "PASSED_EXACT"
+                mass_conserved = duplicate_count == 0
+            else:
+                verdict = "PASSED_WITH_QUARANTINE"
+                mass_conserved = duplicate_count == 0
+            if verdict.startswith("PASSED") and not mass_conserved:
+                verdict = "DISCREPANCY_DETECTED"
 
         # Deterministic checksums
         src_hash = hashlib.sha256(f"SRC_{total_source}_{source_balance_sum}".encode()).hexdigest()[:16]
-        tgt_hash = hashlib.sha256(f"TGT_{target_count}_{target_balance_total}".encode()).hexdigest()[:16]
+        tgt_hash = hashlib.sha256(f"TGT_{target_count_live}_{target_balance_total}".encode()).hexdigest()[:16]
 
         details = [
+            f"Run evaluated: {run_id or 'none'}" + (" (rolled back)" if rolled_back else ""),
             f"Source records provided: {total_source}",
-            f"Target database rows: {target_count}",
-            f"Quarantined invalid rows: {quarantine_count}",
+            f"Accepted by this run (inserted + updated + unchanged): {target_count}",
+            f"Live target table rows: {target_count_live}",
+            f"Quarantined invalid rows (this run only): {quarantine_count}",
             f"Unaccounted delta: {unaccounted} records",
             f"Duplicate natural keys detected: {duplicate_count}",
             f"Source gross balance aggregate: ${source_balance_sum:,.2f}",
             f"Target gross balance aggregate: ${target_balance_total:,.2f}",
         ]
 
-        if not mass_conserved:
-            details.append(f"WARNING: Mass conservation failed! {abs(unaccounted)} records unaccounted.")
+        if verdict == "DISCREPANCY_DETECTED":
+            details.append(
+                f"WARNING: Mass conservation failed! {abs(unaccounted)} records unaccounted"
+                + (f"; {duplicate_count} duplicate natural keys in target." if duplicate_count else ".")
+            )
 
         return ReconciliationReport(
             reconciliation_id=f"recon_{uuid.uuid4().hex[:8]}",

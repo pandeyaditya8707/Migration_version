@@ -38,7 +38,7 @@ The application enables data engineering teams to safely ingest, profile, plan, 
 - **Human Gatekeeper Barrier**: Enforces a strict cryptographic SHA-256 fingerprint sign-off requirement; post-approval plan tampering invalidates the fingerprint and blocks execution.
 - **ACID Execution & Pre-Run Snapshots**: Executes batch migrations inside a SQLite transaction running in Write-Ahead Logging (WAL) mode with automated point-in-time state snapshots.
 - **Idempotent Retry & Deduplication**: Prevents duplicate insertions across retried or repeated runs by matching natural keys and updating audit metadata.
-- **Mass Conservation Reconciliation**: Mathematically verifies zero data loss using exact 1-to-1 accounting without double-counting:
+- **Mass Conservation Reconciliation**: Checks, for one execution run at a time, that every source row is accounted for exactly once (`Skipped` = unchanged rows already in the target). Rejections recorded by a dry run and by the execution are separate ledger entries and are never added together:
   $$\text{Source Records} = \text{Inserted} + \text{Updated} + \text{Skipped} + \text{Quarantined}$$
 - **1-Click Snapshot Rollback**: Reverts the target database to the exact pre-migration snapshot state in milliseconds.
 - **Universal Data Intake & Downstream Export**: Supports arbitrary user file uploads (`.csv`, `.xlsx`, `.json`) and 1-click exports of clean target records and quarantine ledgers.
@@ -179,7 +179,7 @@ The repository includes a comprehensive automated test suite spanning unit tests
 PYTHONPATH=backend pytest backend/tests/ -v
 ```
 
-### Test Summary (45 Passed, 0 Failed, Complete Hermetic Isolation)
+### Test Summary (65 Passed, 0 Failed, Complete Hermetic Isolation)
 The test suite enforces full test isolation with per-test temporary SQLite databases (`tmp_path`), zero cross-test state pollution, negative test cases, and cryptographic anti-tamper proofs:
 
 | Test Module | Coverage Area | Status |
@@ -192,11 +192,14 @@ The test suite enforces full test isolation with per-test temporary SQLite datab
 | `test_ai_fix_remediation.py` | In-flight AI auto-remediation, single-field and auto-resolve-all, plan invalidation | **3 Passed** |
 | `test_transforms.py` | Pure deterministic transformations (split name, date ISO, phone E.164, currency, UUID v5) | **7 Passed** |
 | `test_api.py` | Core FastAPI route contracts, schema endpoints, clarification questions | **5 Passed** |
+| `test_reconciliation_regression.py` | Per-run reconciliation: no double counting of dry-run + execution quarantine, retry accounting, rollback, ledger-tamper detection, Mode 2 signed delta, run-scoped quarantine export | **11 Passed** |
+| `test_access_control.py` | Opt-in API-key protection for state-changing routes; reads and `/healthz` stay open | **4 Passed** |
+| `test_audit_verification_suite.py` | Reviewer audit verification: zero data fabrication, 1-to-1 mass conservation, strict type validation, snapshot ID entropy, SQL identifier allowlist | **5 Passed** |
 | `test_custom_dataset.py` | User custom CSV upload, dynamic schema inference, and execution | **1 Passed** |
-| **Total** | **Comprehensive Regression & Security Suite** | **45 Passed** |
+| **Total** | **Comprehensive Regression & Security Suite** | **65 Passed** |
 
 ```bash
-================= 45 passed, 1 deselected, 1 warning in 39.83s =================
+================= 65 passed, 1 deselected, 1 warning in 3.84s =================
 ```
 
 ### Run Live Server E2E Verification
@@ -271,3 +274,12 @@ To switch from SQLite to an enterprise PostgreSQL or Snowflake target store:
 1. Update `DATABASE_URL` in `.env`.
 2. Swap the SQLite connection factory in `target_store.py` with SQLAlchemy engine / sessionmaker.
 3. All core engines (`DryRunEngine`, `ExecutionEngine`, `ReconciliationEngine`) remain 100% reusable without code modification.
+
+### Access control (optional)
+
+| Variable | Effect |
+| :--- | :--- |
+| `WORKBENCH_API_KEY` | When set, every state-changing `/api` call (approve, execute, rollback, reset, AI config, uploads) must send `X-API-Key`. The UI asks for the key once per browser tab. Reads and `/healthz` stay open. Unset = open demo mode. |
+| `ALLOWED_ORIGINS` | Comma-separated CORS allow-list. Unset = all origins (demo default, logs a warning). |
+
+This is a shared-secret gate for a demo or small team, not user-level authentication or role separation.

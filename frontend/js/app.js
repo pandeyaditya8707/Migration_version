@@ -3,6 +3,28 @@
  * Interactive Client Application
  */
 
+// Optional API-key support: when the server sets WORKBENCH_API_KEY, state-changing /api calls need an
+// X-API-Key header. The key is kept for this browser tab only (sessionStorage) and asked for on a 401.
+(function installApiKeyFetch() {
+  const nativeFetch = window.fetch.bind(window);
+  window.fetch = async (input, init = {}) => {
+    const url = typeof input === 'string' ? input : input.url;
+    if (!url.startsWith('/api')) return nativeFetch(input, init);
+    const withKey = (key) => ({ ...init, headers: { ...(init.headers || {}), ...(key ? { 'X-API-Key': key } : {}) } });
+    let key = null;
+    try { key = sessionStorage.getItem('workbench_api_key'); } catch (_) { /* storage unavailable */ }
+    let res = await nativeFetch(input, withKey(key));
+    if (res.status === 401) {
+      const entered = window.prompt('This workbench requires an API key for changes. Enter it:');
+      if (entered) {
+        try { sessionStorage.setItem('workbench_api_key', entered); } catch (_) { /* ignore */ }
+        res = await nativeFetch(input, withKey(entered));
+      }
+    }
+    return res;
+  };
+})();
+
 const API_BASE = '/api';
 
 const state = {
@@ -598,7 +620,7 @@ function renderTargetStoreView() {
 
 // 5. Reconciliation View Rendering
 async function renderReconciliationView() {
-  const runId = state.lastExecutionResult ? state.lastExecutionResult.run_id : 'latest_dry';
+  const runId = state.lastExecutionResult ? state.lastExecutionResult.run_id : 'latest';
   const planVer = state.currentPlan ? state.currentPlan.version : 1;
 
   try {
@@ -614,7 +636,7 @@ async function renderReconciliationView() {
     tag.textContent = report.verdict.replace(/_/g, ' ');
     if (report.verdict.startsWith('PASSED')) {
       tag.className = 'risk-tag risk-low';
-    } else if (report.verdict === 'PENDING_EXECUTION') {
+    } else if (report.verdict === 'PENDING_EXECUTION' || report.verdict === 'ROLLED_BACK') {
       tag.className = 'risk-tag risk-medium';
     } else {
       tag.className = 'risk-tag risk-high';
@@ -630,6 +652,9 @@ async function renderReconciliationView() {
     `;
 
     document.getElementById('badge-recon-status').textContent = report.verdict.replace(/_/g, ' ');
+    const runLine = (report.details || []).find((d) => d.startsWith('Run evaluated:'));
+    const noteEl = document.getElementById('recon-run-note');
+    if (noteEl && runLine) noteEl.dataset.run = runLine.replace('Run evaluated: ', '');
   } catch (err) {
     console.warn('Reconciliation report pending execution:', err);
   }

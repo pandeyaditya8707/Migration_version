@@ -33,5 +33,32 @@ jobs:
       env:
         PYTHONPATH: backend
       run: |
-        pytest backend/tests/ -m "not playwright" --ignore=backend/tests/test_playwright_ui.py --randomly-seed=1234
+        pytest backend/tests/ -m "not playwright" --ignore=backend/tests/test_playwright_ui.py --randomly-seed=1234 --cov=backend/app --cov-fail-under=72
         pytest backend/tests/ -m "not playwright" --ignore=backend/tests/test_playwright_ui.py --randomly-seed=9999
+
+  browser-ui:
+    # Runs the Playwright UI flow against a live server. Non-blocking until it has passed on CI once
+    # (it needs the AI-plan step to work in the runner); then remove `continue-on-error`.
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+        cache: "pip"
+    - name: Install dependencies and Chromium
+      run: |
+        pip install -r requirements.txt pytest playwright
+        playwright install --with-deps chromium
+    - name: Start workbench
+      env:
+        PYTHONPATH: backend
+        DATABASE_PATH: /tmp/ui_ci.db
+      run: |
+        python -m uvicorn app.main:app --app-dir backend --port 8000 &
+        for i in $(seq 1 30); do curl -sf http://127.0.0.1:8000/healthz && break || sleep 1; done
+    - name: Run browser UI tests
+      env:
+        PYTHONPATH: backend
+      run: pytest backend/tests/test_playwright_ui.py -m playwright -v

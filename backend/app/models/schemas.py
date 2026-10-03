@@ -168,7 +168,9 @@ class ReconciliationReport(BaseModel):
     run_id: str
     plan_version: int
     evaluated_at: str = Field(default_factory=current_utc_iso)
-    verdict: Literal["PENDING_EXECUTION", "PASSED_EXACT", "PASSED_WITH_QUARANTINE", "DISCREPANCY_DETECTED"]
+    verdict: Literal[
+        "PENDING_EXECUTION", "PASSED_EXACT", "PASSED_WITH_QUARANTINE", "ROLLED_BACK", "DISCREPANCY_DETECTED"
+    ]
     accounting: dict[str, int]  # source_total, accepted, quarantined, unaccounted
     invariants_passed: bool
     duplicate_count: int

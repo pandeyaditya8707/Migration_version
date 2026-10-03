@@ -194,6 +194,7 @@ class ExecutionEngine:
                 "updated_count": updated_count,
                 "skipped_duplicates_count": skipped_duplicates,
                 "quarantined_count": len(quarantine_records),
+                "total_source_records": dry_summary.total_source_records,
                 "is_retry": is_retry,
             },
         )

@@ -16,3 +16,7 @@ services:
         value: gpt-oss:20b
       - key: OLLAMA_API_KEY
         sync: false
+      - key: WORKBENCH_API_KEY
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
