@@ -182,6 +182,8 @@ function switchTab(tabId) {
     fetchTargetData().then(renderTargetStoreView);
   } else if (tabId === 'tab-reconciliation') {
     renderReconciliationView();
+  } else if (tabId === 'tab-logs') {
+    if (window.fetchSystemLogs) window.fetchSystemLogs('mode1');
   }
 }
 
@@ -1230,3 +1232,104 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
 }
+
+// ==========================================
+// SYSTEM LOGS VIEWER SUBSYSTEM
+// ==========================================
+window.fetchSystemLogs = async function(mode = 'mode1') {
+  const levelSelectId = mode === 'mode2' ? 'log-filter-level-mode2' : 'log-filter-level-mode1';
+  const terminalId = mode === 'mode2' ? 'logs-terminal-mode2' : 'logs-terminal-mode1';
+  const countId = mode === 'mode2' ? 'logs-count-mode2' : 'logs-count-mode1';
+
+  const select = document.getElementById(levelSelectId);
+  const terminal = document.getElementById(terminalId);
+  const countElem = document.getElementById(countId);
+  if (!terminal) return;
+
+  const level = select ? select.value : 'ALL';
+  try {
+    const res = await fetch(`${API_BASE}/logs?limit=250&level=${encodeURIComponent(level)}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const logs = data.logs || [];
+
+    if (countElem) countElem.textContent = logs.length;
+    if (logs.length === 0) {
+      terminal.innerHTML = '<span style="color: #71717a;">No logs captured for level: ' + escapeHtml(level) + '</span>';
+      return;
+    }
+
+    const html = logs.map(l => {
+      let color = '#d4d4d8';
+      let badgeStyle = 'background: #27272a; color: #a1a1aa;';
+      if (l.level === 'ERROR') {
+        color = '#f87171';
+        badgeStyle = 'background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4);';
+      } else if (l.level === 'WARNING') {
+        color = '#fbbf24';
+        badgeStyle = 'background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4);';
+      } else if (l.level === 'INFO') {
+        color = '#93c5fd';
+        badgeStyle = 'background: rgba(59, 130, 246, 0.2); color: #93c5fd;';
+      }
+      return `<div style="margin-bottom: 0.25rem;"><span style="color: #71717a;">[${escapeHtml(l.timestamp)}]</span> <span style="display: inline-block; padding: 0.05rem 0.35rem; border-radius: 3px; font-size: 0.7rem; font-weight: 600; ${badgeStyle}">${escapeHtml(l.level)}</span> <span style="color: #a1a1aa;">[${escapeHtml(l.logger)}]</span> <span style="color: ${color};">${escapeHtml(l.message)}</span></div>`;
+    }).join('');
+
+    terminal.innerHTML = html;
+  } catch (err) {
+    if (terminal) {
+      terminal.innerHTML = `<span style="color: #f87171;">⚠️ Failed to fetch system logs: ${escapeHtml(err.message)}</span>`;
+    }
+  }
+};
+
+window.clearSystemLogs = async function(mode = 'mode1') {
+  try {
+    const res = await fetch(`${API_BASE}/logs/clear`, { method: 'POST' });
+    if (res.ok) {
+      showToast('System log buffer cleared', 'success');
+      window.fetchSystemLogs(mode);
+    }
+  } catch (err) {
+    showToast('Failed to clear logs: ' + err.message, 'error');
+  }
+};
+
+window.toggleAutoRefreshLogs = function(mode = 'mode1') {
+  // Handled by background interval timer
+};
+
+window.downloadSystemLogs = async function() {
+  try {
+    const res = await fetch(`${API_BASE}/logs?limit=300&level=ALL`);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const logs = data.logs || [];
+    const text = logs.map(l => `[${l.timestamp}] [${l.level}] [${l.logger}] ${l.message}`).join('\n');
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `workbench_system_logs_${new Date().toISOString().replace(/[:.]/g, '-')}.log`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('Logs exported successfully', 'success');
+  } catch (err) {
+    showToast('Failed to export logs: ' + err.message, 'error');
+  }
+};
+
+// Automatic log poll for whichever log tab is active
+setInterval(() => {
+  const v1Active = document.getElementById('tab-logs')?.classList.contains('active');
+  const v2Active = document.getElementById('v2-tab-logs')?.classList.contains('active');
+  
+  if (v1Active && document.getElementById('auto-refresh-logs-mode1')?.checked) {
+    window.fetchSystemLogs('mode1');
+  } else if (v2Active && document.getElementById('auto-refresh-logs-mode2')?.checked) {
+    window.fetchSystemLogs('mode2');
+  }
+}, 3000);
+

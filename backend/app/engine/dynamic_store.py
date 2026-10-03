@@ -47,6 +47,13 @@ class DynamicDatabaseStore:
                 serialized_rows TEXT NOT NULL
             );
             """)
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS v2_persistent_state (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            """)
             conn.commit()
 
     @staticmethod
@@ -63,9 +70,11 @@ class DynamicDatabaseStore:
 
     def compile_and_create_table(self, schema_dict: Dict[str, Any]) -> str:
         """Compiles arbitrary target schema JSON to SQLite DDL and creates the table."""
-        table_name = schema_dict.get("table_name", "target_records").strip()
-        natural_key = schema_dict.get("natural_key", schema_dict.get("primary_key", "id")).strip()
-        primary_key = schema_dict.get("primary_key", natural_key).strip()
+        table_name = str(schema_dict.get("table_name", "target_records")).strip()
+        raw_nk = schema_dict.get("natural_key", schema_dict.get("primary_key", "id"))
+        raw_pk = schema_dict.get("primary_key", raw_nk)
+        natural_key = (raw_nk[0] if isinstance(raw_nk, list) and raw_nk else str(raw_nk)).strip()
+        primary_key = (raw_pk[0] if isinstance(raw_pk, list) and raw_pk else str(raw_pk)).strip()
         fields = schema_dict.get("fields", [])
 
         if not fields:
@@ -144,6 +153,10 @@ class DynamicDatabaseStore:
         Returns: (inserted_count, updated_count, skipped_duplicates)."""
         if not rows:
             return 0, 0, 0
+
+        if isinstance(natural_key_field, list):
+            natural_key_field = natural_key_field[0] if natural_key_field else "id"
+        natural_key_field = str(natural_key_field or "id").strip()
 
         now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         inserted = 0
@@ -312,8 +325,23 @@ class DynamicDatabaseStore:
             conn.commit()
         return snapshot_id
 
+    def get_latest_snapshot(self, table_name: Optional[str] = None) -> Optional[str]:
+        """Returns the most recent snapshot ID for the table (or globally if table_name is None)."""
+        with self.get_connection() as conn:
+            if table_name:
+                row = conn.execute(
+                    "SELECT snapshot_id FROM dynamic_snapshots WHERE table_name = ? ORDER BY created_at DESC LIMIT 1",
+                    (table_name,)
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT snapshot_id FROM dynamic_snapshots ORDER BY created_at DESC LIMIT 1"
+                ).fetchone()
+            return row["snapshot_id"] if row else None
+
     def rollback_snapshot(self, snapshot_id: str) -> Tuple[bool, int, int]:
-        """Rolls back the dynamic table to the saved snapshot state."""
+        """Rolls back the dynamic table to the saved snapshot state.
+        Returns: (success: bool, removed_records: int, remaining_records: int)"""
         with self.get_connection() as conn:
             snap = conn.execute("SELECT * FROM dynamic_snapshots WHERE snapshot_id = ?", (snapshot_id,)).fetchone()
             if not snap:
@@ -321,6 +349,14 @@ class DynamicDatabaseStore:
 
             table_name = snap["table_name"]
             saved_rows = json.loads(snap["serialized_rows"])
+
+            # Check if table exists
+            exists = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,)).fetchone()
+            if not exists:
+                return False, 0, 0
+
+            count_row = conn.execute(f"SELECT COUNT(*) as c FROM {table_name}").fetchone()
+            existing_count = count_row["c"] if count_row else 0
 
             conn.execute("BEGIN TRANSACTION")
             try:
@@ -335,7 +371,36 @@ class DynamicDatabaseStore:
                             [r[c] for c in cols]
                         )
                 conn.commit()
-                return True, len(saved_rows), len(saved_rows)
+                removed_count = max(0, existing_count - len(saved_rows))
+                return True, removed_count, len(saved_rows)
             except Exception as e:
                 conn.rollback()
+                logger.error(f"rollback_snapshot failed for {snapshot_id}: {e}", exc_info=True)
                 raise e
+
+    def save_state(self, key: str, value: Any) -> None:
+        """Persists a key-value pair to SQLite so workers never lose state."""
+        now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        val_str = json.dumps(value) if not isinstance(value, str) else value
+        with self.get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO v2_persistent_state (key, value, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at;
+                """,
+                (key, val_str, now_iso)
+            )
+            conn.commit()
+
+    def load_state(self, key: str) -> Optional[Any]:
+        """Loads a persisted value from SQLite."""
+        with self.get_connection() as conn:
+            row = conn.execute("SELECT value FROM v2_persistent_state WHERE key = ?", (key,)).fetchone()
+            if not row:
+                return None
+            val_str = row["value"]
+            try:
+                return json.loads(val_str)
+            except Exception:
+                return val_str

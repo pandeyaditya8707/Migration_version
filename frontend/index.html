@@ -5,29 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Agentic Data Migration Planner & Reconciliation Workbench</title>
   <meta name="description" content="Production-grade Agentic Workbench for Planning, Validating, Executing, and Reconciling Bounded Data Migrations with Zero Silent Drop.">
-  <!-- Tailwind CSS Integration with Enterprise Workbench Palette -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            canvas: '#f8f9fa',
-            surface: '#ffffff',
-            subtle: '#f1f3f5',
-            obsidian: '#09090b',
-            borderHairline: '#e2e8f0',
-            borderMedium: '#cbd5e1',
-            mutedSlate: '#64748b'
-          },
-          fontFamily: {
-            sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
-            mono: ['"JetBrains Mono"', 'monospace']
-          }
-        }
-      }
-    };
-  </script>
   <link rel="stylesheet" href="/css/style.css?v=3.3.0">
 </head>
 <body>
@@ -132,6 +109,10 @@
         <span>5. Reconciliation & Audit</span>
         <span class="badge-pill" id="badge-recon-status">Parity Check</span>
       </button>
+      <button class="tab-btn" data-tab="tab-logs" id="tab-btn-logs">
+        <span>6. System Logs</span>
+        <span class="badge-pill" id="badge-logs-count">Live</span>
+      </button>
     </nav>
 
     <!-- Mode 2 Navigation Tabs -->
@@ -155,6 +136,10 @@
       <button class="tab-btn" data-tab="v2-tab-reconciliation" onclick="switchV2Tab('v2-tab-reconciliation')">
         <span>5. Universal Reconciliation</span>
         <span class="badge-pill v2-badge">Mass Conservation</span>
+      </button>
+      <button class="tab-btn" data-tab="v2-tab-logs" id="tab-btn-v2-logs" onclick="switchV2Tab('v2-tab-logs')">
+        <span>6. System Logs</span>
+        <span class="badge-pill v2-badge" id="badge-v2-logs-count">Live</span>
       </button>
     </nav>
 
@@ -575,6 +560,43 @@
           </div>
         </div>
       </section>
+
+      <!-- ================= TAB 6: SYSTEM & AI LOGS EXPLORER ================= -->
+      <section class="view-panel" id="tab-logs">
+        <div class="section-header">
+          <div>
+            <h2 class="section-title">Server Execution & Live Diagnostic Logs</h2>
+            <p class="section-desc">Real-time log buffer capturing data ingestions, schema inferences, validation events, and system health.</p>
+          </div>
+          <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+            <select id="log-filter-level-mode1" class="form-input" style="padding: 0.35rem 0.6rem; font-size: 0.76rem;" onchange="fetchSystemLogs('mode1')">
+              <option value="ALL">All Levels</option>
+              <option value="INFO">INFO Only</option>
+              <option value="WARNING">WARNING Only</option>
+              <option value="ERROR">ERROR Only</option>
+            </select>
+            <button class="btn btn-secondary" onclick="fetchSystemLogs('mode1')" style="padding: 0.35rem 0.75rem; font-size: 0.76rem;">
+              🔄 Refresh
+            </button>
+            <button class="btn btn-secondary" onclick="clearSystemLogs('mode1')" style="padding: 0.35rem 0.75rem; font-size: 0.76rem;">
+              🧹 Clear
+            </button>
+            <button class="btn btn-primary" onclick="downloadSystemLogs()" style="padding: 0.35rem 0.75rem; font-size: 0.76rem;">
+              ⬇️ Export Logs
+            </button>
+          </div>
+        </div>
+
+        <div class="card" style="padding: 0; overflow: hidden; border: 1px solid #27272a; background: #09090b;">
+          <div style="padding: 0.6rem 1rem; background: #18181b; border-bottom: 1px solid #27272a; display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; color: #a1a1aa;">
+            <span>Console Stream (<span id="logs-count-mode1">0</span> entries)</span>
+            <label style="display: flex; align-items: center; gap: 0.4rem; cursor: pointer;">
+              <input type="checkbox" id="auto-refresh-logs-mode1" checked onchange="toggleAutoRefreshLogs('mode1')"> Auto-refresh (3s)
+            </label>
+          </div>
+          <div id="logs-terminal-mode1" class="mono" style="padding: 1rem; max-height: 480px; overflow-y: auto; font-size: 0.76rem; line-height: 1.6; color: #e4e4e7; background: #09090b; white-space: pre-wrap;">Initializing system log stream...</div>
+        </div>
+      </section>
       </div><!-- /#tab-container-v1 -->
 
       <!-- ================= MODE 2: UNIVERSAL AUTONOMOUS STUDIO ================= -->
@@ -932,6 +954,43 @@
                 <div class="equation-label">Unaccounted Delta</div>
               </div>
             </div>
+          </div>
+        </section>
+
+        <!-- ================= V2 TAB 6: SYSTEM & AI LOGS EXPLORER ================= -->
+        <section class="view-panel" id="v2-tab-logs">
+          <div class="section-header">
+            <div>
+              <h2 class="section-title">Mode 2 Autonomous Copilot & Server Logs</h2>
+              <p class="section-desc">Live streaming diagnostics for Ollama AI synthesis, dynamic DDL compilation, batch execution, and rollback events.</p>
+            </div>
+            <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+              <select id="log-filter-level-mode2" class="form-input" style="padding: 0.35rem 0.6rem; font-size: 0.76rem;" onchange="fetchSystemLogs('mode2')">
+                <option value="ALL">All Levels</option>
+                <option value="INFO">INFO Only</option>
+                <option value="WARNING">WARNING Only</option>
+                <option value="ERROR">ERROR Only</option>
+              </select>
+              <button class="btn btn-secondary" onclick="fetchSystemLogs('mode2')" style="padding: 0.35rem 0.75rem; font-size: 0.76rem;">
+                🔄 Refresh
+              </button>
+              <button class="btn btn-secondary" onclick="clearSystemLogs('mode2')" style="padding: 0.35rem 0.75rem; font-size: 0.76rem;">
+                🧹 Clear
+              </button>
+              <button class="btn btn-primary" onclick="downloadSystemLogs()" style="padding: 0.35rem 0.75rem; font-size: 0.76rem;">
+                ⬇️ Export Logs
+              </button>
+            </div>
+          </div>
+
+          <div class="card" style="padding: 0; overflow: hidden; border: 1px solid #27272a; background: #09090b;">
+            <div style="padding: 0.6rem 1rem; background: #18181b; border-bottom: 1px solid #27272a; display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; color: #a1a1aa;">
+              <span>AI Agent & Execution Log Stream (<span id="logs-count-mode2">0</span> entries)</span>
+              <label style="display: flex; align-items: center; gap: 0.4rem; cursor: pointer;">
+                <input type="checkbox" id="auto-refresh-logs-mode2" checked onchange="toggleAutoRefreshLogs('mode2')"> Auto-refresh (3s)
+              </label>
+            </div>
+            <div id="logs-terminal-mode2" class="mono" style="padding: 1rem; max-height: 480px; overflow-y: auto; font-size: 0.76rem; line-height: 1.6; color: #e4e4e7; background: #09090b; white-space: pre-wrap;">Initializing Mode 2 log stream...</div>
           </div>
         </section>
 

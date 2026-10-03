@@ -11,7 +11,7 @@ def client():
     c.post("/api/reset")
     return c
 
-def test_mode1_source_dataset_strictly_1000_records():
+def test_mode1_source_dataset_strictly_1000_records(client):
     """Verify Mode 1 source inspection tool has exactly 1,000 records with full field profiling."""
     assert len(inspection_tools.records) == 1000, f"Expected 1000 source records, got {len(inspection_tools.records)}"
     
