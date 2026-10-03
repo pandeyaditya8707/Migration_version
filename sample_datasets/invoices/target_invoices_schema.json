@@ -1,0 +1,51 @@
+{
+  "schema_id": "saas_invoices_v1",
+  "table_name": "invoices",
+  "primary_key": "invoice_uuid",
+  "natural_key": "invoice_number",
+  "fields": [
+    {
+      "name": "invoice_uuid",
+      "data_type": "string",
+      "nullable": false,
+      "constraints": {
+        "unique": true,
+        "description": "Deterministic primary key"
+      }
+    },
+    {
+      "name": "invoice_number",
+      "data_type": "string",
+      "nullable": false,
+      "constraints": {
+        "unique": true,
+        "description": "Natural invoice key"
+      }
+    },
+    {
+      "name": "client_name",
+      "data_type": "string",
+      "nullable": false
+    },
+    {
+      "name": "invoice_date",
+      "data_type": "string",
+      "nullable": false
+    },
+    {
+      "name": "due_date",
+      "data_type": "string",
+      "nullable": false
+    },
+    {
+      "name": "balance_due",
+      "data_type": "float",
+      "nullable": false
+    },
+    {
+      "name": "payment_status",
+      "data_type": "string",
+      "nullable": false
+    }
+  ]
+}

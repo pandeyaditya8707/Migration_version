@@ -5,7 +5,30 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Agentic Data Migration Planner & Reconciliation Workbench</title>
   <meta name="description" content="Production-grade Agentic Workbench for Planning, Validating, Executing, and Reconciling Bounded Data Migrations with Zero Silent Drop.">
-  <link rel="stylesheet" href="/css/style.css">
+  <!-- Tailwind CSS Integration with Enterprise Workbench Palette -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            canvas: '#f8f9fa',
+            surface: '#ffffff',
+            subtle: '#f1f3f5',
+            obsidian: '#09090b',
+            borderHairline: '#e2e8f0',
+            borderMedium: '#cbd5e1',
+            mutedSlate: '#64748b'
+          },
+          fontFamily: {
+            sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'monospace']
+          }
+        }
+      }
+    };
+  </script>
+  <link rel="stylesheet" href="/css/style.css?v=3.3.0">
 </head>
 <body>
   <div class="app-container">
@@ -19,9 +42,21 @@
           <h1>MIGRATION WORKBENCH</h1>
           <p>Agentic Planner & Reconciliation Engine</p>
         </div>
+        <!-- Mode Switcher -->
+        <div class="mode-switch-wrapper">
+          <div class="mode-pill-toggle">
+            <button id="toggle-mode-1" class="mode-pill-btn active" onclick="switchWorkbenchMode('v1')">
+              <span class="pill-dot"></span> Mode 1: Benchmark CRM
+            </button>
+            <button id="toggle-mode-2" class="mode-pill-btn" onclick="switchWorkbenchMode('v2')">
+              <span class="pill-dot v2"></span> Mode 2: Universal Studio (V2)
+            </button>
+          </div>
+        </div>
       </div>
 
-      <div class="nav-actions">
+      <!-- Mode 1 Navigation Actions -->
+      <div class="nav-actions" id="nav-actions-v1">
         <div class="plan-badge">
           <span class="status-indicator" id="plan-status-dot"></span>
           <span id="active-plan-badge-text">Plan: v1 (PROPOSED)</span>
@@ -30,7 +65,7 @@
           <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
           AI Propose Plan
         </button>
-        <button id="btn-run-dry-run-top" class="btn btn-primary">
+        <button id="btn-run-dry-run-top" class="btn btn-secondary">
           <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/></svg>
           Run Dry-Run
         </button>
@@ -38,7 +73,7 @@
           <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
           Approve Plan
         </button>
-        <button id="btn-execute-migration-top" class="btn btn-primary" style="background: linear-gradient(135deg, #8b5cf6, #ec4899);" disabled>
+        <button id="btn-execute-migration-top" class="btn btn-primary" disabled>
           <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
           Execute Target Write
         </button>
@@ -46,10 +81,37 @@
           <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
         </button>
       </div>
+
+      <!-- Mode 2 Navigation Actions -->
+      <div class="nav-actions" id="nav-actions-v2" style="display: none;">
+        <div class="plan-badge">
+          <span class="status-indicator" id="v2-plan-status-dot"></span>
+          <span id="v2-plan-badge-text">Plan: dynamic_v1 (PROPOSED)</span>
+        </div>
+        <button id="btn-v2-propose" class="btn btn-secondary" onclick="proposeV2Plan()">
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+          AI Propose Plan
+        </button>
+        <button id="btn-v2-dryrun-top" class="btn btn-secondary" onclick="runV2DryRun()">
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/></svg>
+          Run Dry-Run
+        </button>
+        <button id="btn-v2-approve-top" class="btn btn-success" onclick="approveV2Plan()">
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+          Approve Plan
+        </button>
+        <button id="btn-v2-execute-top" class="btn btn-primary" onclick="executeV2Migration()" disabled>
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+          Execute Target Write
+        </button>
+        <button id="btn-v2-rollback" class="btn btn-secondary" onclick="rollbackV2Latest()" title="Rollback dynamic table snapshot">
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+        </button>
+      </div>
     </header>
 
-    <!-- Navigation Tabs -->
-    <nav class="tabs-bar">
+    <!-- Mode 1 Navigation Tabs -->
+    <nav class="tabs-bar" id="tabs-bar-v1">
       <button class="tab-btn active" data-tab="tab-profiler" id="tab-btn-profiler">
         <span>1. Schemas & Profiler</span>
         <span class="badge-pill" id="badge-source-count">1,000 recs</span>
@@ -72,11 +134,37 @@
       </button>
     </nav>
 
+    <!-- Mode 2 Navigation Tabs -->
+    <nav class="tabs-bar" id="tabs-bar-v2" style="display: none;">
+      <button class="tab-btn active" data-tab="v2-tab-schemas" onclick="switchV2Tab('v2-tab-schemas')">
+        <span>1. Dynamic Schemas & DDL</span>
+        <span class="badge-pill v2-badge">Arbitrary DDL</span>
+      </button>
+      <button class="tab-btn" data-tab="v2-tab-mapping" onclick="switchV2Tab('v2-tab-mapping')">
+        <span>2. Ollama Mapping Studio</span>
+        <span class="badge-pill v2-badge">Autonomous AI</span>
+      </button>
+      <button class="tab-btn" data-tab="v2-tab-dryrun" onclick="switchV2Tab('v2-tab-dryrun')">
+        <span>3. Deterministic Dry-Run</span>
+        <span class="badge-pill v2-badge">Simulation</span>
+      </button>
+      <button class="tab-btn" data-tab="v2-tab-execution" onclick="switchV2Tab('v2-tab-execution')">
+        <span>4. Dynamic Target Store</span>
+        <span class="badge-pill" id="badge-v2-target-count">0 in DB</span>
+      </button>
+      <button class="tab-btn" data-tab="v2-tab-reconciliation" onclick="switchV2Tab('v2-tab-reconciliation')">
+        <span>5. Universal Reconciliation</span>
+        <span class="badge-pill v2-badge">Mass Conservation</span>
+      </button>
+    </nav>
+
     <!-- Main Workspace Stage -->
     <main class="main-stage">
       
-      <!-- ================= TAB 1: SCHEMAS & PROFILER ================= -->
-      <section class="view-panel active" id="tab-profiler">
+      <!-- ================= MODE 1 VIEWS CONTAINER ================= -->
+      <div id="tab-container-v1">
+        <!-- ================= TAB 1: SCHEMAS & PROFILER ================= -->
+        <section class="view-panel active" id="tab-profiler">
         <div class="section-header">
           <div>
             <h2 class="section-title">Source Data Profiling & Target Schema Invariants</h2>
@@ -85,10 +173,10 @@
         </div>
 
         <!-- Ingestion & Dataset Selection Card -->
-        <div class="card" id="dataset-intake-card" style="background: linear-gradient(145deg, rgba(99, 102, 241, 0.08), rgba(6, 182, 212, 0.05)); border: 2px dashed rgba(99, 102, 241, 0.35); transition: all 0.2s ease;">
+        <div class="card" id="dataset-intake-card" style="background: var(--bg-surface); border: 2px dashed var(--border-medium); transition: all 0.2s ease;">
           <div class="card-header" style="border-bottom: none; margin-bottom: 0;">
             <div>
-              <h3 class="card-title" style="font-size: 1.05rem; color: #fff;">
+              <h3 class="card-title" style="font-size: 1.02rem; color: var(--ink-primary);">
                 <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
                 Dataset Intake: Upload Custom Data, Drag & Drop, or Use Benchmark
               </h3>
@@ -112,6 +200,24 @@
               <button id="btn-load-benchmark" class="btn btn-secondary" title="Reset to standard 1,000-record benchmark">
                 Load 1,000 Benchmark
               </button>
+            </div>
+          </div>
+
+          <!-- Interactive Upload Scaler / Progress Indicator -->
+          <div id="upload-scaler-container" class="upload-scaler-container" style="display: none;">
+            <div class="upload-scaler-header">
+              <div class="upload-scaler-filename">
+                <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                <span id="scaler-file-label">uploading...</span>
+              </div>
+              <div class="upload-scaler-percent" id="upload-scaler-percent">0%</div>
+            </div>
+            <div class="upload-scaler-track">
+              <div class="upload-scaler-fill" id="upload-scaler-fill" style="width: 0%;"></div>
+            </div>
+            <div class="upload-scaler-status">
+              <span id="upload-scaler-msg">Streaming chunks to server...</span>
+              <span id="upload-scaler-speed">Fast intake</span>
             </div>
           </div>
         </div>
@@ -223,10 +329,13 @@
         <!-- Visual Mapping Table -->
         <div class="card">
           <div class="card-header">
-            <h3 class="card-title">Field Transformation & Mapping Matrix</h3>
+            <div>
+              <h3 class="card-title">Field Transformation & Mapping Matrix</h3>
+              <p class="card-subtitle">Deterministic transformation pipeline, risk ratings, and field-level invariants.</p>
+            </div>
             <span class="badge-pill" id="badge-plan-status-text">Status: PROPOSED</span>
           </div>
-          <div class="mapping-studio" id="mapping-studio-list"></div>
+          <div class="table-wrapper" id="mapping-studio-list" style="margin-top: 0.5rem;"></div>
         </div>
       </section>
 
@@ -279,19 +388,24 @@
         <!-- Quarantine Ledger Table -->
         <div class="card">
           <div class="card-header">
-            <h3 class="card-title">Quarantine Ledger & Forensic Error Evidence</h3>
-            <span class="badge-pill" id="quarantine-count-badge">0 Records</span>
+            <div>
+              <h3 class="card-title">Quarantine Ledger & Forensic Error Evidence</h3>
+              <p class="card-subtitle">100% auditable record quarantine with root-cause analysis and deterministic error evidence.</p>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+              <span class="badge-pill" id="quarantine-count-badge">0 Records</span>
+            </div>
           </div>
           <div class="table-wrapper">
             <table class="data-table" id="table-quarantine-ledger">
               <thead>
                 <tr>
-                  <th>Row #</th>
-                  <th>Natural Key</th>
-                  <th>Violated Target Field</th>
-                  <th>Rule / Constraint</th>
-                  <th>Error Diagnostics</th>
-                  <th>Action</th>
+                  <th style="min-width: 80px;">Row #</th>
+                  <th style="min-width: 140px;">Natural Key</th>
+                  <th style="min-width: 150px;">Violated Target Field</th>
+                  <th style="min-width: 160px;">Rule / Constraint</th>
+                  <th style="min-width: 320px;">Error Diagnostics</th>
+                  <th style="min-width: 110px; text-align: right;">Action</th>
                 </tr>
               </thead>
               <tbody id="tbody-quarantine-ledger">
@@ -310,7 +424,7 @@
             <p class="section-desc">Execute approved migration into SQLite ACID store with idempotency & 1-click rollback.</p>
           </div>
           <div style="display: flex; gap: 0.65rem; flex-wrap: wrap;">
-            <button id="btn-execute-migration-main" class="btn btn-primary" style="background: linear-gradient(135deg, #8b5cf6, #ec4899);" disabled>
+            <button id="btn-execute-migration-main" class="btn btn-primary" disabled>
               Execute Approved Migration
             </button>
             <button id="btn-retry-migration" class="btn btn-secondary" title="Test idempotency: re-running should insert 0 duplicates" disabled>
@@ -461,8 +575,462 @@
           </div>
         </div>
       </section>
+      </div><!-- /#tab-container-v1 -->
+
+      <!-- ================= MODE 2: UNIVERSAL AUTONOMOUS STUDIO ================= -->
+      <div id="tab-container-v2" style="display: none;">
+        
+        <!-- V2 TAB 1: DYNAMIC SCHEMAS & DDL -->
+        <section class="view-panel active" id="v2-tab-schemas">
+          <div class="section-header">
+            <div>
+              <h2 class="section-title">Arbitrary Target Schema Compiler & Universal Dataset Ingestion</h2>
+              <p class="section-desc">Define custom schema contracts, compile dynamic SQLite DDL, and inspect source data contracts.</p>
+            </div>
+          </div>
+
+          <div class="grid-2col">
+            <!-- Left Card: Target Schema Studio -->
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">Target Schema Dynamic Contract (JSON)</h3>
+                  <p style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.2rem;">Select an enterprise template or provide arbitrary schema definitions.</p>
+                </div>
+              </div>
+
+              <!-- Quick Presets -->
+              <div class="schema-presets-bar">
+                <button type="button" class="schema-preset-btn active" data-preset="orders" onclick="loadV2SchemaPreset('orders')">
+                  🛒 E-Commerce Orders
+                </button>
+                <button type="button" class="schema-preset-btn" data-preset="encounters" onclick="loadV2SchemaPreset('encounters')">
+                  🏥 Healthcare Encounters
+                </button>
+                <button type="button" class="schema-preset-btn" data-preset="invoices" onclick="loadV2SchemaPreset('invoices')">
+                  📑 SaaS Invoices
+                </button>
+                <button type="button" class="schema-preset-btn" data-preset="custom" onclick="loadV2SchemaPreset('custom')">
+                  ✨ Custom JSON Contract
+                </button>
+              </div>
+
+              <textarea id="v2-target-schema-editor" class="code-editor mono" style="height: 250px; font-size: 0.8rem;"></textarea>
+
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 0.4rem; margin-bottom: 0.6rem;">
+                <span id="v2-json-syntax-indicator" class="json-status-pill" style="background: var(--accent-emerald-subtle); color: #065f46; border: 1px solid var(--accent-emerald-border);">
+                  ✓ Valid JSON Schema
+                </span>
+                <span style="font-size: 0.74rem; color: var(--ink-muted);">Enums, Dates & Invariants Supported</span>
+              </div>
+
+              <!-- Interactive Schema Specification & Field Rules Guide -->
+              <div class="schema-rules-box">
+                <div class="schema-rules-toggle" onclick="toggleSchemaRulesGuide()">
+                  <span style="display: flex; align-items: center; gap: 0.4rem;">
+                    <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    Schema Contract Specification & Field Rules
+                  </span>
+                  <span id="schema-rules-chevron">▼</span>
+                </div>
+                <div id="schema-rules-content" class="schema-rules-content" style="display: none;">
+                  <div style="margin-bottom: 0.4rem;">• <strong>Required Root Keys:</strong> <code>schema_id</code>, <code>table_name</code>, <code>primary_key</code>, <code>natural_key</code>, <code>fields: [...]</code></div>
+                  <div style="margin-bottom: 0.4rem;">• <strong>Data Types:</strong> <code>string</code>, <code>int</code>, <code>float</code>, <code>boolean</code>, <code>date</code>, <code>datetime</code>, <code>enum</code></div>
+                  <div style="margin-bottom: 0.4rem;">• <strong>Enum Rule:</strong> Use <code>"data_type": "enum"</code> with <code>"constraints": {"allowed_values": ["ACTIVE", "INACTIVE"]}</code> for SQL CHECK constraint enforcement.</div>
+                  <div>• <strong>Date Rule:</strong> Use <code>"data_type": "date"</code> (ISO-8601: <code>YYYY-MM-DD</code>) or <code>"data_type": "datetime"</code> (ISO-8601 UTC/GMT: <code>YYYY-MM-DDTHH:MM:SSZ</code>).</div>
+                </div>
+              </div>
+
+              <div style="margin-top: 0.85rem; display: flex; gap: 0.75rem;">
+                <button type="button" id="btn-v2-compile-schema" class="btn btn-primary" onclick="compileV2TargetSchema()">
+                  <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+                  Compile Target Schema into SQLite DDL
+                </button>
+              </div>
+
+              <div style="margin-top: 1rem;">
+                <div style="font-size: 0.72rem; font-weight: 600; color: var(--ink-muted); margin-bottom: 0.4rem; text-transform: uppercase; letter-spacing: 0.05em;">Compiled SQLite DDL Table:</div>
+                <pre class="ddl-code-block" id="v2-ddl-display">-- Click 'Compile Target Schema' to generate SQLite DDL table contract</pre>
+              </div>
+            </div>
+
+            <!-- Right Card: Universal Dataset Intake & Source Contract -->
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">Universal Dataset Intake</h3>
+                  <p style="font-size: 0.8rem; color: var(--ink-muted); margin-top: 0.2rem;">Ingest CSV, JSON, or Excel files (.xlsx) to migrate into the compiled target schema.</p>
+                </div>
+              </div>
+
+              <input type="file" id="input-v2-dataset-file" accept=".csv,.json,.xlsx,.xls,text/csv,application/json" style="position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; opacity: 0;">
+
+              <div id="v2-dataset-drop-zone" style="padding: 1.5rem; border: 2px dashed var(--border-medium); border-radius: var(--radius-md); background: var(--bg-inset); text-align: center; cursor: pointer; transition: all 0.2s ease;">
+                <svg width="32" height="32" fill="none" stroke="var(--ink-secondary)" viewBox="0 0 24 24" style="margin: 0 auto 0.5rem;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+                <div style="font-weight: 600; color: var(--ink-primary); margin-bottom: 0.25rem;">Drag & drop your Mode 2 dataset here</div>
+                <div style="font-size: 0.78rem; color: var(--ink-muted); margin-bottom: 1rem;">Supports CSV, Excel (.xlsx), and JSON array datasets</div>
+                <button type="button" id="btn-v2-browse-files" class="btn btn-secondary" onclick="document.getElementById('input-v2-dataset-file').click()">
+                  Browse Files (Mode 2)
+                </button>
+              </div>
+
+              <!-- Mode 2 Interactive Upload Scaler / Progress Indicator -->
+              <div id="v2-upload-scaler-container" class="upload-scaler-container" style="display: none;">
+                <div class="upload-scaler-header">
+                  <div class="upload-scaler-filename">
+                    <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                    <span id="v2-scaler-file-label">uploading dataset...</span>
+                  </div>
+                  <div class="upload-scaler-percent" id="v2-upload-scaler-percent">0%</div>
+                </div>
+                <div class="upload-scaler-track">
+                  <div class="upload-scaler-fill" id="v2-upload-scaler-fill" style="width: 0%;"></div>
+                </div>
+                <div class="upload-scaler-status">
+                  <span id="v2-upload-scaler-msg">Streaming dataset payload to server...</span>
+                  <span id="v2-upload-scaler-speed">Universal Intake</span>
+                </div>
+              </div>
+
+              <div style="margin-top: 1.25rem;">
+                <div style="font-size: 0.72rem; font-weight: 600; color: var(--ink-muted); margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em;">Mode 2 Source Contract Readiness:</div>
+                <div id="v2-source-contract-summary" style="background: var(--bg-inset); padding: 0.85rem; border-radius: var(--radius-md); border: 1px solid var(--border-hairline); font-size: 0.82rem; color: var(--ink-secondary); line-height: 1.6;">
+                  <div>• <strong>Active Source</strong>: <span id="v2-source-name" style="color: var(--ink-primary); font-weight: 600;">Custom Source / Not Uploaded</span></div>
+                  <div>• <strong>Records Loaded</strong>: <span id="v2-source-records-count" style="color: var(--ink-secondary); font-weight: 600;">0 records</span></div>
+                  <div>• <strong>Fields Detected</strong>: <span id="v2-source-fields-count" style="color: var(--ink-muted);">0 fields</span></div>
+                  <div>• <strong>AI Engine</strong>: <span style="color: var(--accent-emerald); font-weight: 600;">Ollama Autonomous Agent (Strict AI, zero heuristic fallback)</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- V2 TAB 2: OLLAMA / LLM MAPPING STUDIO -->
+        <section class="view-panel" id="v2-tab-mapping">
+          <div class="section-header">
+            <div>
+              <h2 class="section-title">Ollama Autonomous Planner & Reasoning Rationale</h2>
+              <p class="section-desc">AI Agent analyzes target constraints, data types, and field distributions to produce an idempotent plan.</p>
+            </div>
+            <div>
+              <button class="btn btn-secondary" onclick="openV2LLMModal()">⚙️ LLM Model Settings</button>
+            </div>
+          </div>
+
+          <!-- Agent Rationale Box -->
+          <div class="card" id="v2-agent-rationale-box" style="border-left: 3px solid var(--ink-primary);">
+            <div style="font-weight: 600; color: var(--ink-primary); margin-bottom: 0.4rem;">Autonomous Agent Status</div>
+            <p style="font-size: 0.84rem; color: var(--ink-muted);">Click "AI Propose Plan" to engage Ollama LLM for semantic schema mapping and ambiguity detection.</p>
+          </div>
+
+          <!-- Dynamic Mapping Matrix -->
+          <div class="card">
+            <div class="card-header">
+              <h3 class="card-title">Dynamic Field Transformation & Risk Matrix</h3>
+              <span class="badge-pill v2-badge">Pure Invariants</span>
+            </div>
+            <div class="table-wrapper">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Target Field</th>
+                    <th>Source Field</th>
+                    <th>Transformation Rule</th>
+                    <th>Risk Rating</th>
+                    <th>Agent Rationale</th>
+                  </tr>
+                </thead>
+                <tbody id="v2-tbody-mappings">
+                  <tr>
+                    <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 2rem;">No plan proposed yet. Click 'AI Propose Plan' in the header.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- V2 TAB 3: DETERMINISTIC DRY-RUN -->
+        <section class="view-panel" id="v2-tab-dryrun">
+          <div class="section-header">
+            <div>
+              <h2 class="section-title">Deterministic In-Memory Dry-Run (V2)</h2>
+              <p class="section-desc">Simulate pure transformations without mutating database storage.</p>
+            </div>
+          </div>
+
+          <!-- Stat KPI Cards -->
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-label">Source Records</div>
+              <div class="stat-value" id="v2-dry-stat-total">0</div>
+              <div class="stat-desc">Dataset records analyzed</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Insert Ready</div>
+              <div class="stat-value" id="v2-dry-stat-valid" style="color: var(--accent-emerald);">0</div>
+              <div class="stat-desc">Conform to target constraints</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Quarantined</div>
+              <div class="stat-value" id="v2-dry-stat-quar" style="color: var(--accent-rose);">0</div>
+              <div class="stat-desc">Violate schema invariants</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Readiness Score</div>
+              <div class="stat-value" id="v2-dry-stat-ready" style="color: #38bdf8;">100%</div>
+              <div class="stat-desc">Deterministic transformation rate</div>
+            </div>
+          </div>
+
+          <!-- Sample Transformed Records -->
+          <div class="card">
+            <div class="card-header">
+              <h3 class="card-title">Dry-Run Transformed Record Preview (First 50 Rows)</h3>
+              <span class="badge-pill v2-badge">Zero Storage Mutation</span>
+            </div>
+            <div class="table-wrapper">
+              <table class="data-table">
+                <thead id="v2-thead-dryrun"></thead>
+                <tbody id="v2-tbody-dryrun">
+                  <tr>
+                    <td style="text-align: center; color: var(--text-muted); padding: 2rem;">Click 'Run Dry-Run' to preview deterministic transformations.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- V2 Quarantine Ledger Table -->
+          <div class="card" id="v2-card-quarantine" style="margin-top: 1.5rem;">
+            <div class="card-header">
+              <div>
+                <h3 class="card-title" style="color: var(--accent-rose);">
+                  <span>⚠️</span> Quarantine Ledger & Constraint Violations (V2)
+                </h3>
+                <p class="card-subtitle">Records failing dynamic schema invariants with forensic diagnostics and AI remediation suggestions.</p>
+              </div>
+              <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                <button id="btn-auto-fix-all-mode2" class="btn btn-primary" onclick="applyAllAIFixesMode2()" style="font-size: 0.74rem; padding: 0.3rem 0.65rem;">
+                  ⚡ Auto-Apply All AI Fixes & Re-run
+                </button>
+                <span class="badge-pill" id="v2-quarantine-count-badge" style="background: rgba(244, 63, 94, 0.1); color: #f43f5e; border-color: rgba(244, 63, 94, 0.3);">0 Quarantined</span>
+              </div>
+            </div>
+            <div class="table-wrapper">
+              <table class="data-table" id="v2-table-quarantine">
+                <thead>
+                  <tr>
+                    <th style="min-width: 80px;">Row #</th>
+                    <th style="min-width: 140px;">Natural Key</th>
+                    <th style="min-width: 150px;">Violated Field</th>
+                    <th style="min-width: 150px;">Constraint / Rule</th>
+                    <th style="min-width: 250px;">Error Diagnostic</th>
+                    <th style="min-width: 280px;">🤖 AI Suggested Fix</th>
+                    <th style="min-width: 130px; text-align: right;">Action</th>
+                  </tr>
+                </thead>
+                <tbody id="v2-tbody-quarantine">
+                  <tr>
+                    <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 2rem;">Run Dry-Run simulation to view quarantined records.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- V2 TAB 4: DYNAMIC TARGET STORE -->
+        <section class="view-panel" id="v2-tab-execution">
+          <div class="section-header">
+            <div>
+              <h2 class="section-title">Dynamic Target SQLite Database Store</h2>
+              <p class="section-desc">Real-time inspection of dynamic table with atomic upserts and snapshot rollback protection.</p>
+            </div>
+            <div>
+              <button class="btn btn-secondary" onclick="rollbackV2Latest()" style="border-color: rgba(244, 63, 94, 0.4); color: #fda4af;">
+                <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/></svg>
+                Rollback to Snapshot
+              </button>
+            </div>
+          </div>
+
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-label">Active Target Table</div>
+              <div class="stat-value" id="v2-stat-target-table" style="font-size: 1.25rem; color: #38bdf8;">orders</div>
+              <div class="stat-desc">SQLite compiled table</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Rows in SQLite Store</div>
+              <div class="stat-value" id="v2-stat-target-rows">0</div>
+              <div class="stat-desc">Live records in target_store.db</div>
+            </div>
+          </div>
+
+          <!-- Dynamic Target Records Table -->
+          <div class="card">
+            <div class="card-header">
+              <h3 class="card-title">Live Target Records (Query limit: 50)</h3>
+              <span class="badge-pill" id="badge-v2-target-count">0 in DB</span>
+            </div>
+            <div class="table-wrapper">
+              <table class="data-table">
+                <thead id="v2-thead-target"></thead>
+                <tbody id="v2-tbody-target">
+                  <tr>
+                    <td style="text-align: center; color: var(--text-muted); padding: 2rem;">No records written yet. Approve and Execute the migration plan.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- V2 TAB 5: UNIVERSAL RECONCILIATION -->
+        <section class="view-panel" id="v2-tab-reconciliation">
+          <div class="section-header">
+            <div>
+              <h2 class="section-title">Universal Mass Conservation & Zero Silent Drop Invariant</h2>
+              <p class="section-desc">Rigorous accounting equation ensuring every input record is deterministically accounted for.</p>
+            </div>
+          </div>
+
+          <div id="v2-recon-status-banner" style="padding: 1rem 1.5rem; border-radius: var(--radius-md); border: 1px solid var(--border-subtle); background: var(--bg-elevated); margin-bottom: 1.5rem; font-size: 0.9rem;">
+            Awaiting migration execution to verify mathematical conservation.
+          </div>
+
+          <!-- Reconciliation Equation -->
+          <div class="card">
+            <div class="card-header">
+              <h3 class="card-title">Universal Mass Conservation Equation</h3>
+              <span class="badge-pill v2-badge">Strict Parity</span>
+            </div>
+            <div class="equation-row" style="display: flex; gap: 0.75rem; align-items: center; justify-content: center; flex-wrap: wrap; margin: 1.5rem 0;">
+              <div class="equation-box">
+                <div class="equation-val" id="v2-recon-source">0</div>
+                <div class="equation-label">Source Total</div>
+              </div>
+              <div class="operator">=</div>
+              <div class="equation-box">
+                <div class="equation-val" id="v2-recon-inserted" style="color: var(--accent-emerald);">0</div>
+                <div class="equation-label">Inserted</div>
+              </div>
+              <div class="operator">+</div>
+              <div class="equation-box">
+                <div class="equation-val" id="v2-recon-updated" style="color: var(--accent-cyan);">0</div>
+                <div class="equation-label">Updated</div>
+              </div>
+              <div class="operator">+</div>
+              <div class="equation-box">
+                <div class="equation-val" id="v2-recon-quarantined" style="color: var(--accent-rose);">0</div>
+                <div class="equation-label">Quarantined</div>
+              </div>
+              <div class="operator">+</div>
+              <div class="equation-box">
+                <div class="equation-val" id="v2-recon-delta">0</div>
+                <div class="equation-label">Unaccounted Delta</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+      </div><!-- /#tab-container-v2 -->
 
     </main>
+  </div>
+
+  <!-- Ollama / LLM AI Copilot Studio & Test Sandbox Modal -->
+  <div class="modal-overlay" id="v2-llm-modal">
+    <div class="modal-card" style="max-width: 680px; max-height: 90vh; overflow-y: auto;">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 0.6rem;">
+          <span style="font-size: 1.25rem;">🤖</span>
+          <div>
+            <h3 style="font-weight: 700; color: var(--ink-primary); margin: 0; font-size: 1.05rem;">Ollama AI Copilot Studio & Live Test Console</h3>
+            <p style="font-size: 0.76rem; color: var(--ink-muted); margin: 0;">Autonomous LLM planning, zero-gemini free architecture, and live prompt testing.</p>
+          </div>
+        </div>
+        <button class="modal-close" onclick="closeV2LLMModal()">&times;</button>
+      </div>
+
+      <div style="padding: 1.25rem;">
+        
+        <!-- Step-by-Step Instructions Card -->
+        <div style="background: var(--bg-inset); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); padding: 0.85rem 1rem; margin-bottom: 1.25rem; font-size: 0.8rem; line-height: 1.6;">
+          <div style="font-weight: 700; color: var(--ink-primary); margin-bottom: 0.35rem; display: flex; align-items: center; gap: 0.35rem;">
+            <span>🔑 How to Use Your Free Ollama Setup</span>
+          </div>
+          <div style="color: var(--ink-secondary);">
+            <div><strong>Option A (Free Cloud Inference)</strong>: Sign in to <a href="https://ollama.com/settings/keys" target="_blank" style="color: var(--accent-blue); text-decoration: underline;">ollama.com/settings/keys</a>, copy your API key, and paste it into the <em>Ollama API Key</em> field below.</div>
+            <div style="margin-top: 0.25rem;"><strong>Option B (100% Free Local Mac)</strong>: Open Terminal and run <code class="mono" style="background: var(--bg-subtle); padding: 0.15rem 0.35rem; border-radius: 4px; border: 1px solid var(--border-hairline); color: var(--ink-primary);">ollama run llama3.2</code>. Leave host as <code class="mono" style="background: var(--bg-subtle); padding: 0.15rem 0.35rem; border-radius: 4px; border: 1px solid var(--border-hairline); color: var(--ink-primary);">http://localhost:11434</code> (no key required!).</div>
+          </div>
+        </div>
+
+        <!-- Connection Settings Grid -->
+        <div style="background: var(--bg-surface); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); padding: 1.1rem; margin-bottom: 1.25rem;">
+          <div style="font-weight: 600; font-size: 0.78rem; color: var(--ink-primary); margin-bottom: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">1. Server & Authentication</div>
+          
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.85rem; margin-bottom: 0.85rem;">
+            <div>
+              <label style="font-size: 0.74rem; font-weight: 600; color: var(--ink-muted); display: block; margin-bottom: 0.3rem;">OLLAMA HOST</label>
+              <input type="text" id="v2-llm-host" class="form-input mono" value="https://ollama.com/api" placeholder="http://localhost:11434 or https://ollama.com/api">
+            </div>
+            <div>
+              <label style="font-size: 0.74rem; font-weight: 600; color: var(--ink-muted); display: block; margin-bottom: 0.3rem;">MODEL IDENTIFIER</label>
+              <input type="text" id="v2-llm-model" class="form-input mono" value="gpt-oss:20b" placeholder="gpt-oss:20b, llama3.2, deepseek-r1">
+              <div style="display: flex; gap: 0.4rem; margin-top: 0.45rem; flex-wrap: wrap;">
+                <button type="button" class="schema-preset-btn active" id="btn-preset-cloud" onclick="selectModelPreset('gpt-oss:20b', 'https://ollama.com/api')">☁️ gpt-oss:20b (Ollama Cloud)</button>
+                <button type="button" class="schema-preset-btn" id="btn-preset-local" onclick="selectModelPreset('llama3.2', 'http://localhost:11434')">💻 llama3.2 (Local Mac)</button>
+              </div>
+            </div>
+          </div>
+
+          <div style="margin-bottom: 0.85rem;">
+            <label style="font-size: 0.74rem; font-weight: 600; color: var(--ink-muted); display: block; margin-bottom: 0.3rem;">OLLAMA API KEY (FOR CLOUD INFERENCE)</label>
+            <input type="password" id="v2-llm-key" class="form-input mono" placeholder="Paste your Ollama Cloud API Key here (or leave blank if using localhost)">
+          </div>
+
+          <div style="display: flex; gap: 0.6rem; align-items: center; justify-content: flex-end;">
+            <button type="button" class="btn btn-secondary" onclick="testV2LLMConnection()">
+              Ping Host
+            </button>
+            <button type="button" class="btn btn-primary" onclick="saveV2LLMConfig()">
+              Save Configuration
+            </button>
+          </div>
+        </div>
+
+        <!-- Live AI Inference Sandbox -->
+        <div style="background: var(--bg-surface); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); padding: 1.1rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+            <div style="font-weight: 600; font-size: 0.78rem; color: var(--ink-primary); text-transform: uppercase; letter-spacing: 0.05em;">2. Live AI Inference & Mapping Test</div>
+            <span id="ai-test-status-pill" class="badge-pill" style="font-size: 0.72rem;">Ready</span>
+          </div>
+
+          <label style="font-size: 0.74rem; font-weight: 600; color: var(--ink-muted); display: block; margin-bottom: 0.3rem;">TEST PROMPT (SEND TO OLLAMA)</label>
+          <textarea id="ai-test-prompt-input" class="form-input mono" style="height: 80px; resize: vertical; margin-bottom: 0.6rem;">You are an autonomous data migration engineer. Map the legacy field 'full_name_raw' to target fields 'first_name' and 'last_name'. Map 'acct_num' to 'customer_uuid' using UUID_V5_FROM_KEY. Return JSON with 'field_mappings' array and 'rationale'.</textarea>
+
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem;">
+            <span style="font-size: 0.74rem; color: var(--ink-muted);">Executes live completion via active host & model</span>
+            <button type="button" id="btn-run-live-ai-test" class="btn btn-primary" onclick="runLiveAIInferenceTest()">
+              <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/></svg>
+              Run Live AI Inference
+            </button>
+          </div>
+
+          <!-- Live Output Terminal -->
+          <div id="ai-test-result-container" style="display: none; background: var(--bg-inset); border: 1px solid var(--border-hairline); border-radius: var(--radius-sm); padding: 0.85rem;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 0.4rem; font-size: 0.75rem;">
+              <span style="color: var(--ink-primary); font-weight: 600;" id="ai-test-model-tag">Model Output</span>
+              <span style="color: var(--ink-muted);" id="ai-test-latency-tag">0 ms</span>
+            </div>
+            <pre id="ai-test-raw-output" class="mono" style="font-size: 0.76rem; color: var(--ink-primary); max-height: 180px; overflow-y: auto; white-space: pre-wrap; line-height: 1.4;"></pre>
+          </div>
+        </div>
+
+      </div>
+    </div>
   </div>
 
   <!-- Raw Record Detail Modal -->
@@ -479,6 +1047,7 @@
   <!-- Toast Container -->
   <div id="toast-container"></div>
 
-  <script src="/js/app.js"></script>
+  <script src="/js/app.js?v=3.5.0"></script>
+  <script src="/js/v2_app.js?v=3.5.0"></script>
 </body>
 </html>

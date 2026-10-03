@@ -81,6 +81,7 @@ class FieldErrorEvidence(BaseModel):
     severity: Literal["WARNING", "CRITICAL"] = "CRITICAL"
     error_message: str
     raw_value: Any = None
+    ai_suggestion: Optional[str] = None
 
 class QuarantineRecord(BaseModel):
     quarantine_id: str
@@ -89,6 +90,7 @@ class QuarantineRecord(BaseModel):
     source_natural_key: Optional[str] = None
     source_payload: Dict[str, Any]
     errors: List[FieldErrorEvidence]
+    ai_remediation_summary: Optional[str] = None
     timestamp: str = Field(default_factory=current_utc_iso)
 
 class DryRunSummary(BaseModel):

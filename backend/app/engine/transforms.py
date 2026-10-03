@@ -69,7 +69,10 @@ class TransformationRegistry:
     @staticmethod
     def split_name(val: Any, params: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
         """Splits full name like 'Doe, John' or 'John Doe' into first or last name."""
+        fallback = params.get("default") or params.get("fallback")
         if val is None or not str(val).strip():
+            if fallback:
+                return fallback, None
             if params.get("required", False):
                 return None, "Name is missing or empty"
             return None, None
@@ -92,20 +95,29 @@ class TransformationRegistry:
                 last = " ".join(parts[1:])
 
         if part == "first":
-            if not first and params.get("required", False):
-                return None, f"First name could not be extracted from '{val}'"
-            return first if first else None, None
+            if not first:
+                if fallback:
+                    return fallback, None
+                if params.get("required", False):
+                    return None, f"First name could not be extracted from '{val}'"
+            return first if first else fallback, None
         elif part == "last":
-            if not last and params.get("required", False):
-                return None, f"Last name could not be extracted from '{val}'"
-            return last if last else None, None
+            if not last:
+                if fallback:
+                    return fallback, None
+                if params.get("required", False):
+                    return None, f"Last name could not be extracted from '{val}'"
+            return last if last else fallback, None
         else:
             return None, f"Invalid split_name part param '{part}'"
 
     @staticmethod
     def date_to_iso8601(val: Any, params: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
         """Parses various date formats to ISO-8601 UTC string: YYYY-MM-DDTHH:MM:SSZ."""
+        fallback = params.get("fallback") or params.get("default")
         if val is None or not str(val).strip():
+            if fallback:
+                return fallback, None
             if params.get("required", False):
                 return None, "Required date field is missing"
             return None, None
@@ -122,6 +134,8 @@ class TransformationRegistry:
                 dt = datetime.fromtimestamp(epoch, tz=timezone.utc)
                 return dt.strftime("%Y-%m-%dT%H:%M:%SZ"), None
             except Exception as e:
+                if fallback:
+                    return fallback, None
                 return None, f"Invalid epoch timestamp '{val_str}': {e}"
 
         date_formats = [
@@ -152,12 +166,21 @@ class TransformationRegistry:
             except ValueError:
                 continue
 
+        if fallback:
+            return fallback, None
         return None, f"Cannot parse '{val_str}' as a valid date. Expected format like YYYY-MM-DD or MM/DD/YYYY"
 
     @staticmethod
     def phone_to_e164(val: Any, params: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
         """Converts phone strings to E.164 (+1XXXXXXXXXX)."""
+        fallback = params.get("fallback") or params.get("default")
+        null_allowed = params.get("on_invalid") == "null" or params.get("allow_null_on_invalid") or params.get("null_on_invalid")
+
         if val is None or not str(val).strip():
+            if null_allowed:
+                return None, None
+            if fallback:
+                return fallback, None
             if params.get("required", False):
                 return None, "Phone number is required"
             return None, None
@@ -170,17 +193,25 @@ class TransformationRegistry:
         digits = re.sub(r"\D", "", raw)
 
         if not digits:
+            if null_allowed:
+                return None, None
+            if fallback:
+                return fallback, None
             if params.get("required", False):
                 return None, f"Phone number '{raw}' contains no digits"
             return None, None
 
         if len(digits) < 10:
-            if params.get("on_invalid") == "null" or params.get("allow_null_on_invalid"):
+            if null_allowed:
                 return None, None
+            if fallback:
+                return fallback, None
             return None, f"Phone number '{raw}' is too short ({len(digits)} digits; min 10 required)"
         if len(digits) > 15:
-            if params.get("on_invalid") == "null" or params.get("allow_null_on_invalid"):
+            if null_allowed:
                 return None, None
+            if fallback:
+                return fallback, None
             return None, f"Phone number '{raw}' is too long ({len(digits)} digits; max 15 allowed)"
 
         if has_plus:
@@ -193,6 +224,10 @@ class TransformationRegistry:
             e164 = f"+{digits}"
 
         if not E164_REGEX.match(e164):
+            if null_allowed:
+                return None, None
+            if fallback:
+                return fallback, None
             return None, f"Generated phone '{e164}' does not meet E.164 format"
 
         return e164, None
@@ -200,13 +235,24 @@ class TransformationRegistry:
     @staticmethod
     def email_normalize(val: Any, params: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
         """Lowercases, trims, and validates standard email structure."""
+        fallback = params.get("fallback") or params.get("default")
+        null_allowed = params.get("on_invalid") == "null" or params.get("allow_null_on_invalid") or params.get("null_on_invalid")
+
         if val is None or not str(val).strip():
+            if fallback:
+                return fallback, None
+            if null_allowed:
+                return None, None
             if params.get("required", False):
                 return None, "Email address is required"
             return None, None
 
         cleaned = str(val).strip().lower()
         if not EMAIL_REGEX.match(cleaned):
+            if fallback:
+                return fallback, None
+            if null_allowed:
+                return None, None
             return None, f"Invalid email format: '{val}'"
 
         return cleaned, None
@@ -315,12 +361,13 @@ class TransformationRegistry:
         if val is None or not str(val).strip():
             if params.get("required", False):
                 return None, "Natural key is missing for UUID generation"
-            return None, None
+            return str(uuid.uuid4()), None
         
         namespace_str = params.get("namespace", "data-migration.internal")
         ns = uuid.uuid5(uuid.NAMESPACE_DNS, namespace_str)
         generated_uuid = str(uuid.uuid5(ns, str(val).strip()))
         return generated_uuid, None
+
 
 
 # Map transformation rule IDs to callable handlers

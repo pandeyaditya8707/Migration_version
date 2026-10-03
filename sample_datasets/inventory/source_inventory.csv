@@ -1,0 +1,11 @@
+sku_raw,product_title,qty_on_hand,unit_cost_raw,category_code
+SKU-9901,"Industrial Ball Bearing #4",450,"$14.50",HARDWARE
+SKU-9902,"Titanium Hex Bolt 10mm",1200,"$1.25",FASTENERS
+SKU-9903,"Precision Caliper Digital",85,"$49.99",MEASURING
+SKU-9904,"Lithium Grease Tub 500g",300,"$8.75",LUBRICANTS
+SKU-9905,"Stainless Steel Washer M8",5000,"$0.15",FASTENERS
+SKU-9906,"High Torque Stepper Motor",140,"$68.00",MOTORS
+SKU-9907,"Optical Rotary Encoder",95,"$112.50",SENSORS
+SKU-9908,"Pneumatic Pressure Gauge",210,"$28.00",PNEUMATICS
+SKU-9909,"Hydraulic Hose 2-Wire 1m",75,"$34.20",HYDRAULICS
+SKU-9910,"Carbide End Mill 4-Flute",320,"$19.80",TOOLING

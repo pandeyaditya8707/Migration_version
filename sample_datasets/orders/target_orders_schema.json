@@ -1,0 +1,46 @@
+{
+  "schema_id": "ecommerce_orders_v1",
+  "table_name": "orders",
+  "primary_key": "order_uuid",
+  "natural_key": "order_num",
+  "fields": [
+    {
+      "name": "order_uuid",
+      "data_type": "string",
+      "nullable": false,
+      "constraints": {
+        "unique": true,
+        "description": "Deterministic primary key"
+      }
+    },
+    {
+      "name": "order_num",
+      "data_type": "string",
+      "nullable": false,
+      "constraints": {
+        "unique": true,
+        "description": "Natural key for order identification"
+      }
+    },
+    {
+      "name": "customer_email",
+      "data_type": "string",
+      "nullable": false
+    },
+    {
+      "name": "order_date",
+      "data_type": "string",
+      "nullable": false
+    },
+    {
+      "name": "total_amount",
+      "data_type": "float",
+      "nullable": false
+    },
+    {
+      "name": "order_status",
+      "data_type": "string",
+      "nullable": false
+    }
+  ]
+}

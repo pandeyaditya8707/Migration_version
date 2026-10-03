@@ -134,17 +134,27 @@ During the design and implementation of the workbench, several edge-case errors 
 - **The Issue**: When users uploaded Microsoft Excel spreadsheets (`.xlsx`), the file reader attempted to decode raw bytes as UTF-8 CSV text, producing corrupted rows or decode errors.
 - **Resolution**: Integrated `openpyxl` to inspect file extensions and parse binary `.xlsx` sheets into structured record dictionaries.
 
+### Mistake 6: SQLite DDL Constraint Placement Order in Dynamic Store
+- **The Issue**: During dynamic SQLite table generation in V2, column-level definitions and table-level constraints (`UNIQUE(natural_key)`) were generated in arbitrary order, placing `UNIQUE(...)` in between column declarations. SQLite raised `OperationalError: near "...": syntax error`.
+- **Resolution**: Segregated column definitions from table-level constraints in `DynamicDatabaseStore.compile_and_create_table()`. All column definitions are assembled first, followed by trailing `UNIQUE(...)` table constraints.
+
+### Mistake 7: V2 Ollama Structured Output Mode & Fallback
+- **The Issue**: LLM model output from Ollama Cloud could occasionally include surrounding conversational markdown (e.g. ````json ... ````) or experience latency timeouts.
+- **Resolution**: Implemented `format="json"` in `OllamaPlannerAgent`, added a robust JSON block extractor regex, and built an automated heuristic fallback so the studio functions reliably even if offline or without internet access.
+
 ---
 
 ## 5. Verification Methodology
 
-Every agent output and pipeline component is verified through four levels of testing:
+Every agent output and pipeline component is verified through five levels of testing:
 
 1. **Deterministic Unit Tests**:
    - Tested 7 core transforms in isolation ([test_transforms.py](file:///Users/adityapandey/data_mig/backend/tests/test_transforms.py)) verifying phone formatting, currency cleaning, name splitting, and UUIDv5 determinism.
 2. **Pipeline Integration Tests**:
    - Verified plan generation, dry-run simulation, approval gating, and execution rollback in [test_migration_pipeline.py](file:///Users/adityapandey/data_mig/backend/tests/test_migration_pipeline.py).
-3. **End-to-End Live HTTP Tests**:
-   - Verified live server responses using [verify_e2e_live.py](file:///Users/adityapandey/data_mig/backend/tests/verify_e2e_live.py) across 12 operational steps.
-4. **Mathematical Reconciliation Invariant**:
+3. **Dynamic DDL & Arbitrary Schema Tests (V2)**:
+   - Verified DDL compilation, dynamic upserts, and V2 API lifecycle in [test_v2_dynamic_migration.py](file:///Users/adityapandey/data_mig/backend/tests/test_v2_dynamic_migration.py).
+4. **End-to-End Live HTTP Tests**:
+   - Verified live server responses for both Mode 1 and Mode 2 using [verify_v2_e2e_live.py](file:///Users/adityapandey/data_mig/backend/tests/verify_v2_e2e_live.py) across all operational steps.
+5. **Mathematical Reconciliation Invariant**:
    - Asserted that $\Delta = \text{Source} - (\text{Target} + \text{Quarantine} + \text{Duplicates}) \equiv 0$ on every execution run.

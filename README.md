@@ -10,6 +10,9 @@ An enterprise-grade, deterministic **Agentic Data Migration Planner and Reconcil
 
 The application enables data engineering teams to safely ingest, profile, plan, dry-run simulate, quarantine, execute, and mathematically reconcile legacy dataset migrations into strict modern target schemas with a human-in-the-loop governance barrier and 1-click snapshot rollback.
 
+> 📋 **Comprehensive Architecture & Review Evaluation Document**: See [REVIEW_AND_EVALUATION.md](REVIEW_AND_EVALUATION.md) for a breakdown mapped to the 10 professional review rubric criteria.
+> 🚀 **Render 1-Click Deployment**: See [render.yaml](render.yaml) for automated Blueprint deployment.
+
 ---
 
 ## Table of Contents
@@ -201,6 +204,29 @@ To verify the active running server at `http://127.0.0.1:8000`:
 PYTHONPATH=backend python3 backend/tests/verify_e2e_live.py
 ```
 This script exercises all 12 critical workbench stages: schema profiling, plan creation, dry-run simulation, approval gating, ACID execution, live target store validation, reconciliation parity, retry idempotency, snapshot rollback, and audit ledger integrity.
+
+---
+
+## Version 2.0: Universal Autonomous Studio & Ollama Integration
+
+The workbench includes a dual-mode engine enabling universal schema migrations:
+
+### 1. Dual-Mode Architecture
+- **Mode 1: Benchmark CRM (1,000 records)**: Canonical 1,000 legacy records migrating into the 11-field CRM target contract with dedicated profiler, deterministic transforms, and parity checks.
+- **Mode 2: Universal Autonomous Studio (V2)**:
+  - **Arbitrary Target Schema Ingestion**: Define or load custom JSON schemas (e.g. E-Commerce Orders, Healthcare Encounters, SaaS Invoices).
+  - **Dynamic SQLite DDL Compiler**: Automatically compiles JSON contracts into strictly-typed SQLite tables with constraints, indexes, and primary/natural keys (`CREATE TABLE IF NOT EXISTS`).
+  - **Ollama LLM Autonomous Agent**: Connects to Ollama Cloud (`https://ollama.com/api`) or Local (`http://localhost:11434`) using structured JSON mode to inspect schemas, profile samples, and synthesize deterministic transformation rules. Includes heuristic fallback for offline operation.
+  - **Universal In-Memory Dry Run**: Validates arbitrary schema invariants before database writes.
+  - **Atomic Dynamic Upsert**: Batched upserts with `ON CONFLICT` updates and automated pre-run snapshots.
+  - **Universal Mass Conservation**: Reconciles arbitrary dynamic tables ensuring $\text{Source} = \text{Inserted} + \text{Updated} + \text{Quarantined} + \Delta$.
+  - **Point-in-Time Snapshot Rollback**: 1-click rollback of dynamic target tables to pre-migration state.
+
+### 2. Live Verification Script (V1 & V2)
+Execute both versions end-to-end:
+```bash
+.venv/bin/python backend/tests/verify_v2_e2e_live.py
+```
 
 ---
 

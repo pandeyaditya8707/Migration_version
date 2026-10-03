@@ -1,0 +1,11 @@
+inv_num,org_name,billed_date,due_date,amt_due,payment_status
+INV-5001,"Acme Industrial",2024-03-01,2024-03-31,"$4,500.00",PAID
+INV-5002,"Globex Corp",2024-03-02,04/01/2024,"$12,850.75",PENDING
+INV-5003,"Soylent Health",2024-03-03,2024-04-02,"$920.00",PAID
+INV-5004,"Initech Software",2024-03-04,2024-04-03,"$3,100.50",OVERDUE
+INV-5005,"Umbrella Pharma",2024-03-05,04/04/2024,"$25,400.00",PAID
+INV-5006,"Wayne Enterprises",2024-03-06,2024-04-05,"$85,000.00",PAID
+INV-5007,"Stark Industries",2024-03-07,2024-04-06,"$110,250.00",PAID
+INV-5008,"Cyberdyne Systems",2024-03-08,04/07/2024,"$18,750.25",PENDING
+INV-5009,"Massive Dynamic",2024-03-09,2024-04-08,"$6,420.00",OVERDUE
+INV-5010,"Hooli Cloud",2024-03-10,2024-04-09,"$9,990.00",PAID
