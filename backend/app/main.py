@@ -1,15 +1,17 @@
 from __future__ import annotations
-import os
-import json
-import uuid
-import io
+
 import csv
+import io
+import json
 import logging
-from typing import Any, Dict, List, Optional
-from fastapi import FastAPI, HTTPException, Query, Body, File, UploadFile
+import os
+import uuid
+from typing import Any
+
+from fastapi import Body, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 
 logger = logging.getLogger("migration_workbench")
 
@@ -29,38 +31,37 @@ if os.path.exists(_env_file):
     except Exception:
         pass
 
+from .engine import profiler
+from .engine.agent import MigrationPlannerAgent
+from .engine.dry_run import DryRunEngine
+from .engine.executor import ExecutionEngine
+from .engine.history import PlanManager, compute_plan_fingerprint
+from .engine.profiler import (
+    InspectionTools,
+    infer_schema_from_records,
+    load_sample_records,
+    load_source_schema,
+    load_target_schema,
+    parse_any_dataset_payload,
+)
+from .engine.reconciliation import ReconciliationEngine
+from .engine.target_store import TargetDatabaseStore
+from .engine.transforms import SUPPORTED_RULES
 from .models.schemas import (
-    MigrationPlan,
     DryRunSummary,
-    ExecutionRunResult,
-    RollbackResult,
-    ReconciliationReport,
     ExecutionRunRequest,
-    DatasetSchema,
+    ExecutionRunResult,
+    MigrationPlan,
+    ReconciliationReport,
+    RollbackResult,
     TransformationRuleSpec,
     current_utc_iso,
 )
-from .engine import profiler
-from .engine.profiler import (
-    InspectionTools,
-    load_source_schema,
-    load_target_schema,
-    load_sample_records,
-    infer_schema_from_records,
-    parse_any_dataset_payload,
-)
-from .engine.agent import MigrationPlannerAgent
-from .engine.transforms import SUPPORTED_RULES
-from .engine.dry_run import DryRunEngine
-from .engine.target_store import TargetDatabaseStore
-from .engine.executor import ExecutionEngine
-from .engine.reconciliation import ReconciliationEngine
-from .engine.history import PlanManager, compute_plan_fingerprint
 
 app = FastAPI(
     title="Agentic Data Migration Planner & Reconciliation Workbench",
     description="Production-grade API for planning, validating, executing, and reconciling bounded data migrations.",
-    version="1.0.0"
+    version="1.0.0",
 )
 
 app.add_middleware(
@@ -71,12 +72,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 class WorkbenchLogHandler(logging.Handler):
     """Circular in-memory log buffer for real-time frontend debugging and Render inspection."""
+
     def __init__(self, capacity: int = 300):
         super().__init__()
         self.capacity = capacity
-        self.logs: List[Dict[str, Any]] = []
+        self.logs: list[dict[str, Any]] = []
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
@@ -84,12 +87,13 @@ class WorkbenchLogHandler(logging.Handler):
             if "/api/logs" in msg:
                 return  # do not self-pollute log stream with log poll traffic
             from datetime import datetime, timezone
+
             entry = {
                 "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
                 "level": record.levelname,
                 "subsystem": record.name.replace("migration_workbench.", "").replace("uvicorn.", ""),
                 "message": msg,
-                "pathname": os.path.basename(record.pathname) if record.pathname else ""
+                "pathname": os.path.basename(record.pathname) if record.pathname else "",
             }
             self.logs.append(entry)
             if len(self.logs) > self.capacity:
@@ -97,34 +101,37 @@ class WorkbenchLogHandler(logging.Handler):
         except Exception:
             pass
 
+
 workbench_log_handler = WorkbenchLogHandler()
 workbench_log_handler.setFormatter(logging.Formatter("%(message)s"))
 logging.root.addHandler(workbench_log_handler)
 logging.root.setLevel(logging.INFO)
 
+
 @app.get("/healthz", tags=["System"])
 @app.get("/api/health", tags=["System"])
-def health_check() -> Dict[str, str]:
+def health_check() -> dict[str, str]:
     """Production healthcheck probe for Render zero-downtime deployments."""
     return {"status": "HEALTHY", "service": "agentic-data-migration-workbench"}
 
+
 @app.get("/api/logs", tags=["System"])
 def get_system_logs(
-    limit: int = Query(default=100, ge=1, le=300),
-    level: Optional[str] = Query(default=None)
-) -> Dict[str, Any]:
+    limit: int = Query(default=100, ge=1, le=300), level: str | None = Query(default=None)
+) -> dict[str, Any]:
     """Returns captured in-memory server logs for real-time diagnosis in the UI."""
     logs = workbench_log_handler.logs
     if level and level.upper() != "ALL":
-        logs = [l for l in logs if l["level"].upper() == level.upper()]
+        logs = [log_entry for log_entry in logs if log_entry["level"].upper() == level.upper()]
     return {
         "total_captured": len(workbench_log_handler.logs),
         "returned_count": min(len(logs), limit),
-        "logs": list(reversed(logs[-limit:]))
+        "logs": list(reversed(logs[-limit:])),
     }
 
+
 @app.post("/api/logs/clear", tags=["System"])
-def clear_system_logs() -> Dict[str, str]:
+def clear_system_logs() -> dict[str, str]:
     """Clears the in-memory log buffer."""
     workbench_log_handler.logs.clear()
     return {"status": "SUCCESS", "message": "Log buffer cleared"}
@@ -148,30 +155,29 @@ plan_manager.save_plan(initial_plan, actor="AI Migration Planner Agent")
 # Schema & Data Endpoints
 # ============================================================================
 
+
 @app.get("/api/schemas/source")
-def get_source_schema() -> Dict[str, Any]:
+def get_source_schema() -> dict[str, Any]:
     schema = inspection_tools.source_schema
     profiles = inspection_tools.profile_all_columns()
-    return {
-        "schema": schema,
-        "profiles": profiles,
-        "total_sample_records": len(inspection_tools.records)
-    }
+    return {"schema": schema, "profiles": profiles, "total_sample_records": len(inspection_tools.records)}
+
 
 @app.get("/api/schemas/target")
-def get_target_schema() -> Dict[str, Any]:
+def get_target_schema() -> dict[str, Any]:
     return inspection_tools.target_schema
+
 
 @app.post("/api/upload/source")
 async def upload_source_dataset(
-    file: Optional[UploadFile] = File(None),
-    raw_json: Optional[List[Dict[str, Any]]] = Body(None)
-) -> Dict[str, Any]:
+    file: UploadFile | None = File(None), raw_json: list[dict[str, Any]] | None = Body(None)
+) -> dict[str, Any]:
     """Upload custom CSV or JSON dataset from the user."""
-    import csv, io
+    import csv
+
     from .engine.profiler import infer_schema_from_records
 
-    records: List[Dict[str, Any]] = []
+    records: list[dict[str, Any]] = []
     filename = "Custom Dataset"
 
     if file:
@@ -189,6 +195,7 @@ async def upload_source_dataset(
         elif lower_name.endswith(".xlsx") or lower_name.endswith(".xls"):
             try:
                 import openpyxl
+
                 wb = openpyxl.load_workbook(io.BytesIO(content_bytes), data_only=True)
                 sheet = wb.active
                 rows = list(sheet.iter_rows(values_only=True))
@@ -197,7 +204,7 @@ async def upload_source_dataset(
                     for r in rows[1:]:
                         if any(v is not None and str(v).strip() != "" for v in r):
                             row_dict = {}
-                            for h, val in zip(raw_headers, r):
+                            for h, val in zip(raw_headers, r, strict=False):
                                 row_dict[h] = str(val).strip() if val is not None else ""
                             records.append(row_dict)
             except Exception as e:
@@ -219,7 +226,7 @@ async def upload_source_dataset(
 
     # Infer source schema dynamically
     new_schema = infer_schema_from_records(records, dataset_name=filename)
-    
+
     # Update inspection tools with new dataset
     inspection_tools.records = records
     inspection_tools.source_schema = new_schema
@@ -235,13 +242,15 @@ async def upload_source_dataset(
         "message": f"Successfully ingested {len(records)} records from '{filename}'. AI proposed Plan v{next_ver}.",
         "schema": new_schema,
         "total_records": len(records),
-        "plan": new_plan
+        "plan": new_plan,
     }
 
+
 @app.post("/api/load-test-records")
-def load_test_records() -> Dict[str, Any]:
+def load_test_records() -> dict[str, Any]:
     """Instantly loads user_test_records.csv (100 records) into the workbench."""
     import csv
+
     from .engine.profiler import infer_schema_from_records
 
     test_csv_path = os.path.join(os.path.dirname(__file__), "data", "user_test_records.csv")
@@ -266,15 +275,16 @@ def load_test_records() -> Dict[str, Any]:
         "message": f"Loaded 100 test records from 'user_test_records.csv'. AI proposed Plan v{next_ver}.",
         "schema": new_schema,
         "total_records": len(records),
-        "plan": new_plan
+        "plan": new_plan,
     }
 
+
 @app.post("/api/schema/target")
-def update_target_schema(schema_payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+def update_target_schema(schema_payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     """Updates target schema definition and regenerates plan."""
     if "fields" not in schema_payload or not schema_payload["fields"]:
         raise HTTPException(status_code=400, detail="Invalid target schema: 'fields' list required")
-    
+
     inspection_tools.target_schema = schema_payload
     # Regenerate plan
     plans = plan_manager.list_plans()
@@ -286,13 +296,15 @@ def update_target_schema(schema_payload: Dict[str, Any] = Body(...)) -> Dict[str
         "status": "SUCCESS",
         "message": "Target schema updated and new plan generated.",
         "target_schema": schema_payload,
-        "plan": new_plan
+        "plan": new_plan,
     }
+
 
 @app.get("/api/export/target")
 def export_target_records(format: str = Query(default="csv")):
     """Exports all target database records as CSV or JSON."""
-    import csv, io
+    import csv
+
     from fastapi.responses import Response
 
     rows = target_store.query_customers(limit=100000, offset=0)
@@ -303,9 +315,9 @@ def export_target_records(format: str = Query(default="csv")):
         return Response(
             content=json.dumps(rows, indent=2),
             media_type="application/json",
-            headers={"Content-Disposition": "attachment; filename=target_customers_migrated.json"}
+            headers={"Content-Disposition": "attachment; filename=target_customers_migrated.json"},
         )
-    
+
     # Export CSV
     output = io.StringIO()
     writer = csv.DictWriter(output, fieldnames=list(rows[0].keys()))
@@ -314,34 +326,38 @@ def export_target_records(format: str = Query(default="csv")):
     return Response(
         content=output.getvalue(),
         media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=target_customers_migrated.csv"}
+        headers={"Content-Disposition": "attachment; filename=target_customers_migrated.csv"},
     )
+
 
 @app.get("/api/export/quarantine")
 def export_quarantine_records():
     """Exports all quarantined records with error evidence as CSV."""
-    import csv, io
+    import csv
+
     from fastapi.responses import Response
 
     with target_store.get_connection() as conn:
         rows = conn.execute("SELECT * FROM quarantine_ledger ORDER BY source_row_index ASC").fetchall()
         if not rows:
             raise HTTPException(status_code=400, detail="Quarantine ledger has 0 records.")
-        
+
         flat_rows = []
         for r in rows:
             d = dict(r)
             errors = json.loads(d["errors"])
             payload = json.loads(d["source_payload"])
             err_summary = "; ".join([f"[{e['field']}]: {e['error_message']}" for e in errors])
-            flat_rows.append({
-                "source_row_index": d["source_row_index"] + 1,
-                "natural_key": d["source_natural_key"],
-                "run_id": d["run_id"],
-                "errors_detected": err_summary,
-                "raw_payload": json.dumps(payload),
-                "created_at": d["created_at"]
-            })
+            flat_rows.append(
+                {
+                    "source_row_index": d["source_row_index"] + 1,
+                    "natural_key": d["source_natural_key"],
+                    "run_id": d["run_id"],
+                    "errors_detected": err_summary,
+                    "raw_payload": json.dumps(payload),
+                    "created_at": d["created_at"],
+                }
+            )
 
         output = io.StringIO()
         writer = csv.DictWriter(output, fieldnames=list(flat_rows[0].keys()))
@@ -350,21 +366,24 @@ def export_quarantine_records():
         return Response(
             content=output.getvalue(),
             media_type="text/csv",
-            headers={"Content-Disposition": "attachment; filename=quarantine_error_ledger.csv"}
+            headers={"Content-Disposition": "attachment; filename=quarantine_error_ledger.csv"},
         )
 
+
 @app.get("/api/samples")
-def get_sample_records(limit: int = Query(default=10, ge=1, le=100)) -> List[Dict[str, Any]]:
+def get_sample_records(limit: int = Query(default=10, ge=1, le=100)) -> list[dict[str, Any]]:
     return inspection_tools.sample_records(n=limit)
 
+
 @app.get("/api/transforms")
-def get_supported_transforms() -> List[TransformationRuleSpec]:
+def get_supported_transforms() -> list[TransformationRuleSpec]:
     return SUPPORTED_RULES
 
 
 # ============================================================================
 # Plan Management & Agent Endpoints
 # ============================================================================
+
 
 @app.post("/api/plans/propose")
 def propose_new_plan() -> MigrationPlan:
@@ -377,16 +396,18 @@ def propose_new_plan() -> MigrationPlan:
             source_schema=inspection_tools.source_schema,
             target_schema=inspection_tools.target_schema,
             records=inspection_tools.records,
-            allow_fallback=True
+            allow_fallback=True,
         )
     except Exception as e:
         logger.warning(f"Ollama agent failed for Mode 1 plan proposal ({e}), falling back to built-in agent.")
         new_plan = agent.generate_plan(plan_version=next_ver)
     return plan_manager.save_plan(new_plan, actor="AI Migration Agent")
 
+
 @app.get("/api/plans")
-def list_plans() -> List[MigrationPlan]:
+def list_plans() -> list[MigrationPlan]:
     return plan_manager.list_plans()
+
 
 @app.get("/api/plans/{version}")
 def get_plan(version: int) -> MigrationPlan:
@@ -395,6 +416,7 @@ def get_plan(version: int) -> MigrationPlan:
         p = agent.generate_plan(plan_version=version)
         plan_manager.save_plan(p, actor="AI Migration Agent")
     return p
+
 
 @app.post("/api/plans/{version}/approve")
 def approve_plan(version: int, approved_by: str = Body(default="Lead Data Engineer")) -> MigrationPlan:
@@ -407,11 +429,9 @@ def approve_plan(version: int, approved_by: str = Body(default="Lead Data Engine
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
+
 @app.post("/api/plans/{version}/clarifications")
-def update_plan_clarifications(
-    version: int,
-    payload: Dict[str, str] = Body(...)
-) -> MigrationPlan:
+def update_plan_clarifications(version: int, payload: dict[str, str] = Body(...)) -> MigrationPlan:
     """Updates user answers to clarification questions and synchronizes transformation parameters."""
     question_id = payload.get("question_id")
     user_answer = payload.get("user_answer")
@@ -432,6 +452,7 @@ def update_plan_clarifications(
 
     # Propagate policy changes to field_mappings
     import re
+
     for m in plan.field_mappings:
         # Status fallback policy
         if question_id == "clarify_status_x" and m.target_field == "status":
@@ -477,11 +498,9 @@ def update_plan_clarifications(
 
     return plan_manager.save_plan(plan, actor="User Clarification Decision")
 
+
 @app.post("/api/plans/{version}/mappings")
-def update_plan_mapping(
-    version: int,
-    mapping_payload: Dict[str, Any] = Body(...)
-) -> MigrationPlan:
+def update_plan_mapping(version: int, mapping_payload: dict[str, Any] = Body(...)) -> MigrationPlan:
     """Updates a specific field mapping rule in the plan."""
     plan = plan_manager.get_plan(version)
     if not plan:
@@ -489,6 +508,7 @@ def update_plan_mapping(
 
     target_field = mapping_payload.get("target_field")
     from .models.schemas import FieldMapping
+
     found = False
     for i, m in enumerate(plan.field_mappings):
         if m.target_field == target_field:
@@ -507,18 +527,17 @@ def update_plan_mapping(
 
     return plan_manager.save_plan(plan, actor="User Mapping Edit")
 
+
 @app.post("/api/plans/{version}/fork")
-def fork_plan(version: int, updated_mappings: List[Dict[str, Any]] = Body(...)) -> MigrationPlan:
+def fork_plan(version: int, updated_mappings: list[dict[str, Any]] = Body(...)) -> MigrationPlan:
     try:
         return plan_manager.create_next_version(version, updated_mappings, actor="User Customization")
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
+
 @app.post("/api/plans/{version}/apply-fix")
-def apply_ai_fix_mode1(
-    version: int,
-    payload: Dict[str, Any] = Body(...)
-) -> Dict[str, Any]:
+def apply_ai_fix_mode1(version: int, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     """Applies recommended AI fixes to field mappings and automatically re-runs dry-run simulation across all records."""
     plan = plan_manager.get_plan(version)
     if not plan:
@@ -606,12 +625,14 @@ def apply_ai_fix_mode1(
         "fixes_applied": fixes_applied,
         "fix_description": "; ".join(fixes_applied) if fixes_applied else "AI parameter fix applied.",
         "plan": plan.model_dump() if hasattr(plan, "model_dump") else plan.dict(),
-        "dry_run_summary": summary.model_dump() if hasattr(summary, "model_dump") else summary.dict()
+        "dry_run_summary": summary.model_dump() if hasattr(summary, "model_dump") else summary.dict(),
     }
+
 
 # ============================================================================
 # Dry-Run Simulation Endpoints
 # ============================================================================
+
 
 @app.post("/api/plans/{version}/dry-run")
 def execute_dry_run(version: int) -> DryRunSummary:
@@ -624,6 +645,7 @@ def execute_dry_run(version: int) -> DryRunSummary:
 
     # Save quarantine records from dry run into ledger
     import json
+
     now_iso = current_utc_iso()
     with target_store.get_connection() as conn:
         for q in quars:
@@ -635,9 +657,14 @@ def execute_dry_run(version: int) -> DryRunSummary:
                 ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    q.quarantine_id, summary.run_id, q.source_row_index, q.source_natural_key,
-                    json.dumps(q.source_payload), json.dumps([e.model_dump() for e in q.errors]), now_iso
-                )
+                    q.quarantine_id,
+                    summary.run_id,
+                    q.source_row_index,
+                    q.source_natural_key,
+                    json.dumps(q.source_payload),
+                    json.dumps([e.model_dump() for e in q.errors]),
+                    now_iso,
+                ),
             )
         conn.commit()
 
@@ -651,8 +678,8 @@ def execute_dry_run(version: int) -> DryRunSummary:
             "total_records": summary.total_source_records,
             "accepted_count": summary.accepted_count,
             "rejected_count": summary.rejected_count,
-            "field_errors": summary.field_error_breakdown
-        }
+            "field_errors": summary.field_error_breakdown,
+        },
     )
     return summary
 
@@ -661,10 +688,10 @@ def execute_dry_run(version: int) -> DryRunSummary:
 # Execution, Retry & Rollback Endpoints
 # ============================================================================
 
+
 @app.post("/api/plans/{version}/execute")
 def execute_migration(
-    version: int,
-    req: ExecutionRunRequest = Body(default_factory=lambda: ExecutionRunRequest(plan_version=1))
+    version: int, req: ExecutionRunRequest = Body(default_factory=lambda: ExecutionRunRequest(plan_version=1))
 ) -> ExecutionRunResult:
     p = plan_manager.get_plan(version)
     if not p:
@@ -674,7 +701,7 @@ def execute_migration(
     if p.status != "APPROVED":
         raise HTTPException(
             status_code=400,
-            detail=f"Execution blocked: Plan v{version} is in status '{p.status}'. You must approve the plan before execution."
+            detail=f"Execution blocked: Plan v{version} is in status '{p.status}'. You must approve the plan before execution.",
         )
 
     try:
@@ -685,11 +712,12 @@ def execute_migration(
         logger.error(f"Execution failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/api/rollback")
 def rollback_migration(
     snapshot_id: str = Body(..., embed=True),
     run_id: str = Body(..., embed=True),
-    actor: str = Body(default="Lead Data Engineer", embed=True)
+    actor: str = Body(default="Lead Data Engineer", embed=True),
 ) -> RollbackResult:
     return executor.rollback_migration(snapshot_id=snapshot_id, run_id=run_id, actor=actor)
 
@@ -698,11 +726,11 @@ def rollback_migration(
 # Target Store & Reconciliation Endpoints
 # ============================================================================
 
+
 @app.get("/api/target/records")
 def get_target_records(
-    limit: int = Query(default=25, ge=1, le=100),
-    offset: int = Query(default=0, ge=0)
-) -> Dict[str, Any]:
+    limit: int = Query(default=25, ge=1, le=100), offset: int = Query(default=0, ge=0)
+) -> dict[str, Any]:
     total = target_store.get_customer_count()
     rows = target_store.query_customers(limit=limit, offset=offset)
     financial_total = target_store.get_financial_aggregate()
@@ -711,25 +739,25 @@ def get_target_records(
         "financial_total_balance": financial_total,
         "limit": limit,
         "offset": offset,
-        "records": rows
+        "records": rows,
     }
+
 
 @app.get("/api/quarantine/records")
 def get_quarantine_records(
-    run_id: Optional[str] = None,
-    limit: int = Query(default=50, ge=1, le=200)
-) -> List[Dict[str, Any]]:
+    run_id: str | None = None, limit: int = Query(default=50, ge=1, le=200)
+) -> list[dict[str, Any]]:
     import json
+
     with target_store.get_connection() as conn:
         if run_id:
             rows = conn.execute(
                 "SELECT * FROM quarantine_ledger WHERE run_id = ? ORDER BY source_row_index ASC LIMIT ?",
-                (run_id, limit)
+                (run_id, limit),
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT * FROM quarantine_ledger ORDER BY created_at DESC, source_row_index ASC LIMIT ?",
-                (limit,)
+                "SELECT * FROM quarantine_ledger ORDER BY created_at DESC, source_row_index ASC LIMIT ?", (limit,)
             ).fetchall()
 
         result = []
@@ -740,16 +768,19 @@ def get_quarantine_records(
             result.append(d)
         return result
 
+
 @app.get("/api/reconciliation/{run_id}")
 def get_reconciliation_report(run_id: str, plan_version: int = 1) -> ReconciliationReport:
     return reconciler.reconcile(run_id=run_id, plan_version=plan_version, source_records=inspection_tools.records)
 
+
 @app.get("/api/audit-trail")
-def get_audit_trail() -> List[Dict[str, Any]]:
+def get_audit_trail() -> list[dict[str, Any]]:
     return target_store.get_audit_trail(limit=50)
 
+
 @app.post("/api/reset")
-def reset_workbench() -> Dict[str, str]:
+def reset_workbench() -> dict[str, str]:
     """Resets the mock target store and audit trail for clean demo runs."""
     target_store.reset_database()
     inspection_tools.records = load_sample_records()
@@ -773,28 +804,28 @@ SAMPLE_DATASET_CONFIG = {
     "healthcare": {
         "title": "Healthcare Clinical Encounters",
         "csv": os.path.join(DATASETS_DIR, "healthcare", "source_encounters.csv"),
-        "schema": os.path.join(DATASETS_DIR, "healthcare", "target_encounters_schema.json")
+        "schema": os.path.join(DATASETS_DIR, "healthcare", "target_encounters_schema.json"),
     },
     "encounters": {
         "title": "Healthcare Clinical Encounters",
         "csv": os.path.join(DATASETS_DIR, "healthcare", "source_encounters.csv"),
-        "schema": os.path.join(DATASETS_DIR, "healthcare", "target_encounters_schema.json")
+        "schema": os.path.join(DATASETS_DIR, "healthcare", "target_encounters_schema.json"),
     },
     "orders": {
         "title": "E-Commerce Orders & Fulfillment",
         "csv": os.path.join(DATASETS_DIR, "orders", "source_orders.csv"),
-        "schema": os.path.join(DATASETS_DIR, "orders", "target_orders_schema.json")
+        "schema": os.path.join(DATASETS_DIR, "orders", "target_orders_schema.json"),
     },
     "invoices": {
         "title": "SaaS B2B Recurring Invoices",
         "csv": os.path.join(DATASETS_DIR, "invoices", "source_invoices.csv"),
-        "schema": os.path.join(DATASETS_DIR, "invoices", "target_invoices_schema.json")
+        "schema": os.path.join(DATASETS_DIR, "invoices", "target_invoices_schema.json"),
     },
     "inventory": {
         "title": "Warehouse Logistics & Inventory",
         "csv": os.path.join(DATASETS_DIR, "inventory", "source_inventory.csv"),
-        "schema": os.path.join(DATASETS_DIR, "inventory", "target_inventory_schema.json")
-    }
+        "schema": os.path.join(DATASETS_DIR, "inventory", "target_inventory_schema.json"),
+    },
 }
 
 DEFAULT_V2_TARGET_SCHEMA = {
@@ -804,17 +835,28 @@ DEFAULT_V2_TARGET_SCHEMA = {
     "natural_key": "order_number",
     "primary_key": "order_uuid",
     "fields": [
-        {"name": "order_uuid", "data_type": "string", "nullable": False, "constraints": {"unique": True, "format": "uuid"}},
+        {
+            "name": "order_uuid",
+            "data_type": "string",
+            "nullable": False,
+            "constraints": {"unique": True, "format": "uuid"},
+        },
         {"name": "order_number", "data_type": "string", "nullable": False, "constraints": {"unique": True}},
         {"name": "customer_email", "data_type": "string", "nullable": False, "constraints": {"format": "email"}},
         {"name": "customer_phone", "data_type": "string", "nullable": True},
         {"name": "order_date", "data_type": "datetime", "nullable": False},
-        {"name": "order_status", "data_type": "string", "nullable": False, "constraints": {"enum": ["PENDING", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED"]}},
+        {
+            "name": "order_status",
+            "data_type": "string",
+            "nullable": False,
+            "constraints": {"enum": ["PENDING", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED"]},
+        },
         {"name": "total_amount", "data_type": "float", "nullable": False},
         {"name": "currency_code", "data_type": "string", "nullable": False, "constraints": {"regex": "^[A-Z]{3}$"}},
-        {"name": "shipping_country", "data_type": "string", "nullable": False, "constraints": {"regex": "^[A-Z]{2}$"}}
-    ]
+        {"name": "shipping_country", "data_type": "string", "nullable": False, "constraints": {"regex": "^[A-Z]{2}$"}},
+    ],
 }
+
 
 def init_mode2_inspection_tools() -> InspectionTools:
     """Mode 2 Universal Studio: strictly isolated to Mode 2 sample data, NEVER Mode 1 CRM data."""
@@ -827,30 +869,32 @@ def init_mode2_inspection_tools() -> InspectionTools:
                 records = [dict(row) for row in reader]
         except Exception:
             records = []
-    
-    inferred_source = profiler.infer_schema_from_records(records, dataset_name="orders_source") if records else {
-        "schema_id": "v2_orders_source_v1",
-        "name": "E-Commerce Orders Legacy Export",
-        "fields": []
-    }
-    
+
+    inferred_source = (
+        profiler.infer_schema_from_records(records, dataset_name="orders_source")
+        if records
+        else {"schema_id": "v2_orders_source_v1", "name": "E-Commerce Orders Legacy Export", "fields": []}
+    )
+
     tools = InspectionTools(records=records)
     tools.source_schema = inferred_source
     tools.target_schema = DEFAULT_V2_TARGET_SCHEMA
     return tools
 
+
 dynamic_store = DynamicDatabaseStore()
 v2_inspection_tools = init_mode2_inspection_tools()
 ollama_agent = OllamaPlannerAgent(inspection_tools=v2_inspection_tools)
 
-v2_state: Dict[str, Any] = {
+v2_state: dict[str, Any] = {
     "active_target_schema": DEFAULT_V2_TARGET_SCHEMA,
     "last_execution_result": None,
     "last_dry_run_summary": None,
-    "active_plan": None
+    "active_plan": None,
 }
 
-def get_v2_active_schema() -> Dict[str, Any]:
+
+def get_v2_active_schema() -> dict[str, Any]:
     schema = v2_state.get("active_target_schema")
     if not schema:
         schema = dynamic_store.load_state("active_target_schema")
@@ -858,11 +902,13 @@ def get_v2_active_schema() -> Dict[str, Any]:
             v2_state["active_target_schema"] = schema
     return schema or DEFAULT_V2_TARGET_SCHEMA
 
-def set_v2_active_schema(schema: Dict[str, Any]) -> None:
+
+def set_v2_active_schema(schema: dict[str, Any]) -> None:
     v2_state["active_target_schema"] = schema
     dynamic_store.save_state("active_target_schema", schema)
 
-def get_v2_active_plan() -> Optional[MigrationPlan]:
+
+def get_v2_active_plan() -> MigrationPlan | None:
     plan = v2_state.get("active_plan")
     if not plan:
         raw_plan = dynamic_store.load_state("active_plan")
@@ -874,56 +920,80 @@ def get_v2_active_plan() -> Optional[MigrationPlan]:
                 logger.error(f"Error loading persisted plan: {e}")
     return plan
 
-def set_v2_active_plan(plan: Optional[MigrationPlan]) -> None:
+
+def set_v2_active_plan(plan: MigrationPlan | None) -> None:
     v2_state["active_plan"] = plan
     if plan:
         dynamic_store.save_state("active_plan", plan.model_dump() if hasattr(plan, "model_dump") else plan)
     else:
         dynamic_store.save_state("active_plan", None)
 
+
 try:
     dynamic_store.compile_and_create_table(DEFAULT_V2_TARGET_SCHEMA)
-except Exception:
-    pass
+except Exception as e:
+    logger.debug(f"Default V2 schema initialization note: {e}")
+
+ALLOWED_LLM_HOSTS = {"localhost", "127.0.0.1", "ollama.com", "api.groq.com", "api.openai.com"}
+for extra in os.getenv("ALLOWED_LLM_HOSTS", "").split(","):
+    if extra.strip():
+        ALLOWED_LLM_HOSTS.add(extra.strip().lower())
+
 
 @app.post("/api/llm/config")
 @app.post("/api/v2/llm/config")
-def configure_llm(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+def configure_llm(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    import urllib.parse
+
     api_key = payload.get("api_key")
     host = payload.get("host")
     model = payload.get("model")
+
+    if host:
+        parsed = urllib.parse.urlparse(host if "://" in host else f"http://{host}")
+        host_netloc = (parsed.hostname or "").lower()
+        if host_netloc and host_netloc not in ALLOWED_LLM_HOSTS and not host_netloc.endswith(".localhost"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Security violation: Untrusted LLM host '{host}'. Allowed domains: {sorted(list(ALLOWED_LLM_HOSTS))}. Configure ALLOWED_LLM_HOSTS to add custom endpoints.",
+            )
+
     ollama_agent.set_config(api_key=api_key, host=host, model=model)
     return {
         "status": "SUCCESS",
         "message": f"LLM configured with host={ollama_agent.host}, model={ollama_agent.model}",
-        "has_key": bool(ollama_agent.api_key)
+        "has_key": bool(ollama_agent.api_key),
     }
+
 
 @app.get("/api/llm/verify")
 @app.get("/api/v2/llm/verify")
-def verify_llm_connection() -> Dict[str, Any]:
+def verify_llm_connection() -> dict[str, Any]:
     return ollama_agent.verify_connection()
+
 
 @app.get("/api/llm/status")
 @app.get("/api/v2/llm/status")
-def get_llm_status() -> Dict[str, Any]:
+def get_llm_status() -> dict[str, Any]:
     return {
         "status": ollama_agent.last_call_info["status"],
         "model": ollama_agent.model,
         "host": ollama_agent.host,
         "has_api_key": bool(ollama_agent.api_key),
-        "last_call_info": ollama_agent.last_call_info
+        "last_call_info": ollama_agent.last_call_info,
     }
+
 
 @app.post("/api/llm/test")
 @app.post("/api/v2/llm/test")
-def test_llm_inference(payload: Optional[Dict[str, Any]] = Body(default=None)) -> Dict[str, Any]:
+def test_llm_inference(payload: dict[str, Any] | None = Body(default=None)) -> dict[str, Any]:
     prompt = payload.get("prompt") if payload else None
     return ollama_agent.test_inference(sample_prompt=prompt)
 
+
 @app.post("/api/ai/diagnose-record")
 @app.post("/api/v2/ai/diagnose-record")
-def ai_diagnose_quarantine_record(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+def ai_diagnose_quarantine_record(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     field = payload.get("field", "")
     rule = payload.get("rule", "")
     raw_value = payload.get("raw_value", "")
@@ -949,20 +1019,21 @@ def ai_diagnose_quarantine_record(payload: Dict[str, Any] = Body(...)) -> Dict[s
 
     return {
         "status": "FALLBACK_DIAGNOSIS",
-        "diagnosis": f"Root Cause: Column '{field}' failed {rule} with error '{error_message}'. Actionable Fix: Update the transformation rule in Mapping Studio to handle '{raw_value}' (e.g. configure fallback value, enum mapping, or regex pre-cleaning) or cleanse source input."
+        "diagnosis": f"Root Cause: Column '{field}' failed {rule} with error '{error_message}'. Actionable Fix: Update the transformation rule in Mapping Studio to handle '{raw_value}' (e.g. configure fallback value, enum mapping, or regex pre-cleaning) or cleanse source input.",
     }
+
 
 @app.post("/api/v2/upload/source")
 @app.post("/api/v2/source/upload")
 async def upload_v2_source_dataset(
-    file: Optional[UploadFile] = File(default=None),
-    raw_json: Optional[Union[List[Dict[str, Any]], Dict[str, Any]]] = Body(default=None)
-) -> Dict[str, Any]:
+    file: UploadFile | None = File(default=None),
+    raw_json: list[dict[str, Any]] | dict[str, Any] | None = Body(default=None),
+) -> dict[str, Any]:
     """Mode 2 Universal Dataset Intake: Strictly isolated to Mode 2 Universal Studio.
     Profiles uploaded CSV/TSV/JSON/NDJSON, updates v2_inspection_tools, and invokes Ollama AI
     with guaranteed semantic fallback.
     """
-    records: List[Dict[str, Any]] = []
+    records: list[dict[str, Any]] = []
     filename = "uploaded_dataset"
 
     if file is not None:
@@ -972,7 +1043,7 @@ async def upload_v2_source_dataset(
         try:
             records = parse_any_dataset_payload(content_str, filename=filename)
         except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Failed to parse '{filename}': {str(e)}")
+            raise HTTPException(status_code=400, detail=f"Failed to parse '{filename}': {e!s}")
     elif raw_json is not None:
         if isinstance(raw_json, list):
             records = [r for r in raw_json if isinstance(r, dict)]
@@ -987,7 +1058,9 @@ async def upload_v2_source_dataset(
         raise HTTPException(status_code=400, detail="No file or JSON payload provided")
 
     if not records:
-        raise HTTPException(status_code=400, detail=f"The uploaded dataset '{filename}' contains 0 records or could not be parsed.")
+        raise HTTPException(
+            status_code=400, detail=f"The uploaded dataset '{filename}' contains 0 records or could not be parsed."
+        )
 
     # Clean previous run results for fresh intake
     v2_state["last_execution_result"] = None
@@ -1011,6 +1084,7 @@ async def upload_v2_source_dataset(
         # Load default orders template if no custom schema has been compiled yet
         try:
             from .engine.dynamic_store import TEMPLATES
+
             if "orders" in TEMPLATES:
                 default_schema = TEMPLATES["orders"]
                 dynamic_store.compile_and_create_table(default_schema)
@@ -1022,55 +1096,64 @@ async def upload_v2_source_dataset(
 
     if active_target:
         try:
-            logger.info(f"Synthesizing plan for '{filename}' against target schema '{active_target.get('table_name', 'target')}'...")
+            logger.info(
+                f"Synthesizing plan for '{filename}' against target schema '{active_target.get('table_name', 'target')}'..."
+            )
             plan = ollama_agent.generate_plan(
                 plan_version=1,
                 source_schema=new_schema,
                 target_schema=active_target,
                 records=records,
-                allow_fallback=True
+                allow_fallback=True,
             )
             set_v2_active_plan(plan)
             logger.info(f"Generated Mode 2 plan with {len(plan.field_mappings)} field mappings.")
         except Exception as e:
             ai_error = str(e)
-            logger.warning(f"Plan synthesis notice for '{filename}': {ai_error}. Activating deterministic semantic planner.")
+            logger.warning(
+                f"Plan synthesis notice for '{filename}': {ai_error}. Activating deterministic semantic planner."
+            )
             try:
                 fallback_agent = MigrationPlannerAgent(inspection_tools=v2_inspection_tools)
                 plan = fallback_agent._generate_dynamic_plan(
                     source_schema=new_schema,
                     target_schema=active_target,
                     profiles=v2_inspection_tools.profile_all_columns(),
-                    plan_version=1
+                    plan_version=1,
                 )
                 set_v2_active_plan(plan)
-                logger.info(f"Deterministic semantic fallback generated Mode 2 plan with {len(plan.field_mappings)} mappings.")
+                logger.info(
+                    f"Deterministic semantic fallback generated Mode 2 plan with {len(plan.field_mappings)} mappings."
+                )
             except Exception as fb_err:
                 logger.error(f"Fallback planner failed: {fb_err}")
                 set_v2_active_plan(None)
 
     return {
         "status": "SUCCESS",
-        "message": f"Successfully ingested {len(records)} records from '{filename}' into Mode 2 Universal Studio." + (f" Notice: {ai_error}" if ai_error else ""),
+        "message": f"Successfully ingested {len(records)} records from '{filename}' into Mode 2 Universal Studio."
+        + (f" Notice: {ai_error}" if ai_error else ""),
         "filename": filename,
         "source_schema": new_schema,
         "total_records": len(records),
         "target_schema": active_target,
         "plan": plan.model_dump() if hasattr(plan, "model_dump") else plan,
-        "ai_error": ai_error
+        "ai_error": ai_error,
     }
 
+
 @app.get("/api/v2/source")
-def get_v2_source_info() -> Dict[str, Any]:
+def get_v2_source_info() -> dict[str, Any]:
     """Returns current Mode 2 source dataset information."""
     return {
         "total_records": len(v2_inspection_tools.records),
         "source_schema": v2_inspection_tools.source_schema,
-        "sample_records": v2_inspection_tools.records[:5]
+        "sample_records": v2_inspection_tools.records[:5],
     }
 
+
 @app.post("/api/v2/schema/target")
-def set_v2_target_schema(schema_payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+def set_v2_target_schema(schema_payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     """Sets arbitrary target JSON schema and compiles it to SQLite DDL."""
     if "fields" not in schema_payload or not schema_payload["fields"]:
         raise HTTPException(status_code=400, detail="Target schema must contain 'fields' array")
@@ -1094,7 +1177,7 @@ def set_v2_target_schema(schema_payload: Dict[str, Any] = Body(...)) -> Dict[str
             plan_version=1,
             source_schema=v2_inspection_tools.source_schema,
             target_schema=schema_payload,
-            records=v2_inspection_tools.records
+            records=v2_inspection_tools.records,
         )
         set_v2_active_plan(plan)
         logger.info(f"Synthesized Mode 2 plan with {len(plan.field_mappings)} mappings.")
@@ -1110,27 +1193,31 @@ def set_v2_target_schema(schema_payload: Dict[str, Any] = Body(...)) -> Dict[str
         "ddl": ddl,
         "target_schema": schema_payload,
         "plan": plan.model_dump() if hasattr(plan, "model_dump") else plan,
-        "ai_error": ai_error
+        "ai_error": ai_error,
     }
 
+
 @app.get("/api/v2/schema/target")
-def get_v2_target_schema() -> Dict[str, Any]:
+def get_v2_target_schema() -> dict[str, Any]:
     return get_v2_active_schema()
 
+
 @app.post("/api/v2/plans/propose")
-def propose_v2_plan(payload: Optional[Dict[str, Any]] = Body(default=None)) -> Dict[str, Any]:
+def propose_v2_plan(payload: dict[str, Any] | None = Body(default=None)) -> dict[str, Any]:
     active_target = get_v2_active_schema()
     if not active_target:
         raise HTTPException(status_code=400, detail="No active target schema. Please compile a target schema first.")
     strict_ai = "unreachable" in str(ollama_agent.model).lower() or "54321" in str(ollama_agent.host)
     try:
-        logger.info(f"Synthesizing plan for target '{active_target.get('table_name', 'target')}' with {len(v2_inspection_tools.records)} records...")
+        logger.info(
+            f"Synthesizing plan for target '{active_target.get('table_name', 'target')}' with {len(v2_inspection_tools.records)} records..."
+        )
         plan = ollama_agent.generate_plan(
             plan_version=1,
             source_schema=v2_inspection_tools.source_schema,
             target_schema=active_target,
             records=v2_inspection_tools.records,
-            allow_fallback=not strict_ai
+            allow_fallback=not strict_ai,
         )
         set_v2_active_plan(plan)
         logger.info(f"Plan proposed successfully with {len(plan.field_mappings)} field mappings.")
@@ -1139,10 +1226,11 @@ def propose_v2_plan(payload: Optional[Dict[str, Any]] = Body(default=None)) -> D
         raise
     except Exception as e:
         logger.error(f"AI Agent propose plan failed: {e}", exc_info=True)
-        raise HTTPException(status_code=502, detail=f"AI Agent Error: {str(e)}")
+        raise HTTPException(status_code=502, detail=f"AI Agent Error: {e!s}")
+
 
 @app.get("/api/v2/plans/current")
-def get_current_v2_plan() -> Dict[str, Any]:
+def get_current_v2_plan() -> dict[str, Any]:
     plan = get_v2_active_plan()
     if not plan:
         active_target = get_v2_active_schema()
@@ -1153,7 +1241,7 @@ def get_current_v2_plan() -> Dict[str, Any]:
                     source_schema=v2_inspection_tools.source_schema,
                     target_schema=active_target,
                     records=v2_inspection_tools.records,
-                    allow_fallback=True
+                    allow_fallback=True,
                 )
                 set_v2_active_plan(plan)
             except Exception as e:
@@ -1164,9 +1252,10 @@ def get_current_v2_plan() -> Dict[str, Any]:
             "plan_id": None,
             "version": 0,
             "message": "No active plan currently exists. Please compile a target schema or click 'Propose Plan' to synthesize a plan with AI.",
-            "field_mappings": []
+            "field_mappings": [],
         }
     return plan.model_dump() if hasattr(plan, "model_dump") else plan
+
 
 @app.post("/api/v2/plans/approve")
 def approve_v2_plan(payload: Any = Body(default=None)) -> MigrationPlan:
@@ -1177,8 +1266,11 @@ def approve_v2_plan(payload: Any = Body(default=None)) -> MigrationPlan:
         approved_by = payload.strip()
     plan = get_v2_active_plan()
     if not plan:
-        raise HTTPException(status_code=404, detail="No active plan to approve. Please compile a target schema and synthesize a plan first.")
-    
+        raise HTTPException(
+            status_code=404,
+            detail="No active plan to approve. Please compile a target schema and synthesize a plan first.",
+        )
+
     active_target = get_v2_active_schema()
     plan.status = "APPROVED"
     plan.approved_by = approved_by
@@ -1194,27 +1286,30 @@ def approve_v2_plan(payload: Any = Body(default=None)) -> MigrationPlan:
             "plan_id": plan.plan_id,
             "version": plan.version,
             "approval_fingerprint": plan.approval_fingerprint,
-            "approved_at": plan.approved_at
-        }
+            "approved_at": plan.approved_at,
+        },
     )
-    logger.info(f"Mode 2 plan v{plan.version} approved by '{approved_by}' with fingerprint {plan.approval_fingerprint[:12]}...")
+    logger.info(
+        f"Mode 2 plan v{plan.version} approved by '{approved_by}' with fingerprint {plan.approval_fingerprint[:12]}..."
+    )
     return plan
 
+
 @app.post("/api/v2/plans/dry-run")
-def execute_v2_dry_run() -> Dict[str, Any]:
+def execute_v2_dry_run() -> dict[str, Any]:
     plan = get_v2_active_plan()
     if not plan:
         raise HTTPException(status_code=404, detail="No active plan for dry run. Please propose a plan first.")
     active_target = get_v2_active_schema()
     summary, valids, quars = dry_runner.execute_dry_run(
-        plan,
-        records=v2_inspection_tools.records,
-        target_schema=active_target
+        plan, records=v2_inspection_tools.records, target_schema=active_target
     )
     v2_state["last_dry_run_summary"] = summary
     v2_state["last_quarantine_records"] = quars
-    dynamic_store.save_state("last_dry_run_summary", summary.model_dump() if hasattr(summary, "model_dump") else summary)
-    
+    dynamic_store.save_state(
+        "last_dry_run_summary", summary.model_dump() if hasattr(summary, "model_dump") else summary
+    )
+
     # Save quarantine records to durable SQLite ledger
     dynamic_store.save_v2_quarantine_records(summary.run_id, quars)
     dynamic_store.log_v2_audit_event(
@@ -1226,27 +1321,24 @@ def execute_v2_dry_run() -> Dict[str, Any]:
             "plan_version": plan.version,
             "total_records": summary.total_source_records,
             "accepted_count": summary.accepted_count,
-            "quarantined_count": summary.rejected_count
-        }
+            "quarantined_count": summary.rejected_count,
+        },
     )
-    logger.info(f"Mode 2 dry-run: {summary.accepted_count} valid, {summary.rejected_count} quarantined ({summary.total_source_records} total).")
+    logger.info(
+        f"Mode 2 dry-run: {summary.accepted_count} valid, {summary.rejected_count} quarantined ({summary.total_source_records} total)."
+    )
 
     summary_dict = summary.model_dump() if hasattr(summary, "model_dump") else summary.dict()
     summary_dict["valid_count"] = summary.accepted_count
     summary_dict["quarantined_count"] = summary.rejected_count
     summary_dict["total_evaluated"] = summary.total_source_records
     summary_dict["sample_transformed"] = valids[:50]
-    summary_dict["quarantine_sample"] = [
-        q.model_dump() if hasattr(q, "model_dump") else q.dict()
-        for q in quars[:100]
-    ]
+    summary_dict["quarantine_sample"] = [q.model_dump() if hasattr(q, "model_dump") else q.dict() for q in quars[:100]]
     return summary_dict
 
 
 @app.post("/api/v2/plans/apply-fix")
-def apply_ai_fix_mode2(
-    payload: Dict[str, Any] = Body(...)
-) -> Dict[str, Any]:
+def apply_ai_fix_mode2(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     """Applies recommended AI fixes to Mode 2 dynamic field mappings and re-runs dry-run simulation across all records."""
     plan = v2_state.get("active_plan")
     if not plan:
@@ -1262,9 +1354,6 @@ def apply_ai_fix_mode2(
     fixes_applied = []
 
     fields_list = target_schema.get("fields", [])
-    tgt_field_def = next((f for f in fields_list if f.get("name") == target_field), {})
-    allowed_enums = tgt_field_def.get("constraints", {}).get("enum") or tgt_field_def.get("constraints", {}).get("allowed_values", [])
-    default_enum = allowed_enums[0] if allowed_enums else "UNKNOWN"
 
     for m in plan.field_mappings:
         f_def = next((f for f in fields_list if f.get("name") == m.target_field), {})
@@ -1308,7 +1397,15 @@ def apply_ai_fix_mode2(
                 fixes_applied.append(f"Set null-on-invalid for {m.target_field}")
             else:
                 f_name_lower = m.target_field.lower()
-                default_fb = "VALUED_CUSTOMER" if "name" in f_name_lower else ("2024-01-01T00:00:00Z" if "date" in f_name_lower else ("remediated@customer.internal" if "email" in f_name_lower else "UNKNOWN"))
+                default_fb = (
+                    "VALUED_CUSTOMER"
+                    if "name" in f_name_lower
+                    else (
+                        "2024-01-01T00:00:00Z"
+                        if "date" in f_name_lower
+                        else ("remediated@customer.internal" if "email" in f_name_lower else "UNKNOWN")
+                    )
+                )
                 fb = custom_fallback or default_fb
                 m.parameters["fallback"] = fb
                 m.parameters["default"] = fb
@@ -1325,9 +1422,7 @@ def apply_ai_fix_mode2(
 
     # Re-run simulation
     summary, valids, quars = dry_runner.execute_dry_run(
-        plan,
-        records=v2_inspection_tools.records,
-        target_schema=target_schema
+        plan, records=v2_inspection_tools.records, target_schema=target_schema
     )
     v2_state["last_dry_run_summary"] = summary
     v2_state["last_quarantine_records"] = quars
@@ -1337,23 +1432,19 @@ def apply_ai_fix_mode2(
     summary_dict["valid_count"] = summary.accepted_count
     summary_dict["quarantined_count"] = summary.rejected_count
     summary_dict["sample_transformed"] = valids[:50]
-    summary_dict["quarantine_sample"] = [
-        q.model_dump() if hasattr(q, "model_dump") else q.dict()
-        for q in quars[:100]
-    ]
+    summary_dict["quarantine_sample"] = [q.model_dump() if hasattr(q, "model_dump") else q.dict() for q in quars[:100]]
 
     return {
         "status": "SUCCESS",
         "fixes_applied": fixes_applied,
         "fix_description": "; ".join(fixes_applied) if fixes_applied else "AI parameter fix applied.",
         "plan": plan.model_dump() if hasattr(plan, "model_dump") else plan.dict(),
-        "dry_run_summary": summary_dict
+        "dry_run_summary": summary_dict,
     }
 
+
 @app.post("/api/v2/plans/execute")
-def execute_v2_migration(
-    req: Optional[Dict[str, Any]] = Body(default=None)
-) -> ExecutionRunResult:
+def execute_v2_migration(req: dict[str, Any] | None = Body(default=None)) -> ExecutionRunResult:
     plan = get_v2_active_plan()
     if not plan:
         raise HTTPException(status_code=404, detail="No active plan to execute")
@@ -1365,14 +1456,12 @@ def execute_v2_migration(
     if not plan.approval_fingerprint or plan.approval_fingerprint != expected_fingerprint:
         raise HTTPException(
             status_code=400,
-            detail="Security violation: Plan has been modified after approval (fingerprint mismatch). Re-approval is mandatory."
+            detail="Security violation: Plan has been modified after approval (fingerprint mismatch). Re-approval is mandatory.",
         )
 
     try:
         summary, valids, quars = dry_runner.execute_dry_run(
-            plan,
-            records=v2_inspection_tools.records,
-            target_schema=target_schema
+            plan, records=v2_inspection_tools.records, target_schema=target_schema
         )
         v2_state["last_dry_run_summary"] = summary
         v2_state["last_quarantine_records"] = quars
@@ -1391,10 +1480,7 @@ def execute_v2_migration(
         snap_id = dynamic_store.create_snapshot(table_name=table_name, run_id=run_id)
 
         inserted, updated, skipped = dynamic_store.execute_upsert_batch(
-            table_name=table_name,
-            natural_key_field=natural_key,
-            rows=valids,
-            run_id=run_id
+            table_name=table_name, natural_key_field=natural_key, rows=valids, run_id=run_id
         )
 
         # Durable SQLite quarantine records & audit log
@@ -1413,8 +1499,8 @@ def execute_v2_migration(
                 "inserted": inserted,
                 "updated": updated,
                 "quarantined": summary.rejected_count,
-                "snapshot_id": snap_id
-            }
+                "snapshot_id": snap_id,
+            },
         )
 
         now_iso = current_utc_iso()
@@ -1430,47 +1516,46 @@ def execute_v2_migration(
             quarantined_count=summary.rejected_count,
             execution_time_ms=summary.execution_time_ms,
             target_table_name=table_name,
-            timestamp=now_iso
+            timestamp=now_iso,
         )
         v2_state["last_execution_result"] = result
         dynamic_store.save_state("last_execution_result", result.model_dump())
-        logger.info(f"Mode 2 migration write SUCCESS ({table_name}): {inserted} inserted, {updated} updated, {summary.rejected_count} quarantined.")
+        logger.info(
+            f"Mode 2 migration write SUCCESS ({table_name}): {inserted} inserted, {updated} updated, {summary.rejected_count} quarantined."
+        )
         return result
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"execute_v2_migration failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Database Write Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Database Write Error: {e!s}")
+
 
 @app.get("/api/v2/quarantine/records")
-def get_v2_quarantine_records(run_id: Optional[str] = None, limit: int = 100) -> Dict[str, Any]:
+def get_v2_quarantine_records(run_id: str | None = None, limit: int = 100) -> dict[str, Any]:
     """Retrieves durable quarantine ledger records from SQLite."""
     total, records = dynamic_store.load_v2_quarantine_records(run_id=run_id, limit=limit)
     return {"total": total, "records": records}
 
+
 @app.get("/api/v2/audit/events")
-def get_v2_audit_events(limit: int = 100) -> List[Dict[str, Any]]:
+def get_v2_audit_events(limit: int = 100) -> list[dict[str, Any]]:
     """Retrieves durable audit ledger events from SQLite."""
     return dynamic_store.load_v2_audit_events(limit=limit)
 
+
 @app.get("/api/v2/target/records")
 def get_v2_target_records(
-    limit: int = Query(default=25, ge=1, le=100),
-    offset: int = Query(default=0, ge=0)
-) -> Dict[str, Any]:
+    limit: int = Query(default=25, ge=1, le=100), offset: int = Query(default=0, ge=0)
+) -> dict[str, Any]:
     active_target = get_v2_active_schema()
     table_name = active_target.get("table_name", "target_records")
     total, rows = dynamic_store.query_dynamic_records(table_name=table_name, limit=limit, offset=offset)
-    return {
-        "table_name": table_name,
-        "total_records": total,
-        "limit": limit,
-        "offset": offset,
-        "records": rows
-    }
+    return {"table_name": table_name, "total_records": total, "limit": limit, "offset": offset, "records": rows}
+
 
 @app.post("/api/v2/rollback")
-def rollback_v2_migration(payload: Optional[Dict[str, Any]] = Body(default=None)) -> Dict[str, Any]:
+def rollback_v2_migration(payload: dict[str, Any] | None = Body(default=None)) -> dict[str, Any]:
     active_target = get_v2_active_schema()
     table_name = active_target.get("table_name")
 
@@ -1488,7 +1573,9 @@ def rollback_v2_migration(payload: Optional[Dict[str, Any]] = Body(default=None)
         snap_id = dynamic_store.get_latest_snapshot(table_name=table_name)
 
     if not snap_id:
-        raise HTTPException(status_code=404, detail="No snapshot found for rollback. Run a migration write first to create a snapshot.")
+        raise HTTPException(
+            status_code=404, detail="No snapshot found for rollback. Run a migration write first to create a snapshot."
+        )
 
     success, removed, remaining = dynamic_store.rollback_snapshot(snap_id)
     if not success:
@@ -1502,11 +1589,12 @@ def rollback_v2_migration(payload: Optional[Dict[str, Any]] = Body(default=None)
         "snapshot_id": snap_id,
         "table_name": table_name or "target_records",
         "removed_records": removed,
-        "remaining_records": remaining
+        "remaining_records": remaining,
     }
 
+
 @app.get("/api/v2/reconciliation")
-def get_v2_reconciliation() -> Dict[str, Any]:
+def get_v2_reconciliation() -> dict[str, Any]:
     total_source = len(v2_inspection_tools.records)
     active_target = get_v2_active_schema()
     table_name = active_target.get("table_name", "target_records")
@@ -1539,11 +1627,16 @@ def get_v2_reconciliation() -> Dict[str, Any]:
     accounted = (ins_count + upd_count) + quar_count
     unaccounted = max(0, total_source - accounted) if total_source >= accounted else 0
 
-    verdict = "PASSED_EXACT" if unaccounted == 0 and quar_count == 0 else ("PASSED_WITH_QUARANTINE" if unaccounted == 0 else "DISCREPANCY_DETECTED")
+    verdict = (
+        "PASSED_EXACT"
+        if unaccounted == 0 and quar_count == 0
+        else ("PASSED_WITH_QUARANTINE" if unaccounted == 0 else "DISCREPANCY_DETECTED")
+    )
     if target_count == 0 and ins_count == 0:
         verdict = "PENDING_EXECUTION"
 
     import hashlib
+
     src_hash = hashlib.sha256(f"{total_source}".encode()).hexdigest()[:16]
     tgt_hash = hashlib.sha256(f"{target_count}".encode()).hexdigest()[:16]
 
@@ -1563,20 +1656,17 @@ def get_v2_reconciliation() -> Dict[str, Any]:
         "source_checksum": src_hash,
         "target_checksum": tgt_hash,
         "invariants_passed": unaccounted == 0,
-        "is_zero_drop_verified": is_zero_drop
+        "is_zero_drop_verified": is_zero_drop,
     }
+
 
 @app.get("/api/v2/samples/catalog")
-def get_sample_catalog() -> Dict[str, Any]:
-    return {
-        "datasets": [
-            {"key": k, "title": v["title"]}
-            for k, v in SAMPLE_DATASET_CONFIG.items()
-        ]
-    }
+def get_sample_catalog() -> dict[str, Any]:
+    return {"datasets": [{"key": k, "title": v["title"]} for k, v in SAMPLE_DATASET_CONFIG.items()]}
+
 
 @app.post("/api/v2/samples/load/{dataset_key}")
-def load_sample_dataset_space(dataset_key: str) -> Dict[str, Any]:
+def load_sample_dataset_space(dataset_key: str) -> dict[str, Any]:
     if dataset_key not in SAMPLE_DATASET_CONFIG:
         raise HTTPException(status_code=404, detail=f"Unknown dataset key '{dataset_key}'")
 
@@ -1585,6 +1675,7 @@ def load_sample_dataset_space(dataset_key: str) -> Dict[str, Any]:
         raise HTTPException(status_code=404, detail="Dataset files not found")
 
     import csv
+
     records = []
     with open(cfg["csv"], "r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
@@ -1619,9 +1710,8 @@ def load_sample_dataset_space(dataset_key: str) -> Dict[str, Any]:
         "source_schema": inferred_source,
         "plan": plan,
         "ai_error": ai_error,
-        "agent_call_info": ollama_agent.last_call_info
+        "agent_call_info": ollama_agent.last_call_info,
     }
-
 
 
 # Mount frontend static directories

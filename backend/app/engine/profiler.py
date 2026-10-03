@@ -1,15 +1,18 @@
 from __future__ import annotations
+
 import csv
 import io
 import json
 import os
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 from ..engine.transforms import apply_transformation
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
 
-def parse_any_dataset_payload(content_str: str, filename: str = "") -> List[Dict[str, Any]]:
+
+def parse_any_dataset_payload(content_str: str, filename: str = "") -> list[dict[str, Any]]:
     """Extensively parses any JSON (array, object, wrapped list, NDJSON/JSON-Lines)
     or delimited text (CSV, TSV, semicolon, pipe) into a normalized list of dicts.
     """
@@ -28,7 +31,18 @@ def parse_any_dataset_payload(content_str: str, filename: str = "") -> List[Dict
             if isinstance(data, list):
                 return [r for r in data if isinstance(r, dict)]
             elif isinstance(data, dict):
-                for key in ("records", "data", "items", "results", "rows", "invoices", "orders", "customers", "entries", "payload"):
+                for key in (
+                    "records",
+                    "data",
+                    "items",
+                    "results",
+                    "rows",
+                    "invoices",
+                    "orders",
+                    "customers",
+                    "entries",
+                    "payload",
+                ):
                     if key in data and isinstance(data[key], list):
                         return [r for r in data[key] if isinstance(r, dict)]
                 return [data]
@@ -37,7 +51,7 @@ def parse_any_dataset_payload(content_str: str, filename: str = "") -> List[Dict
 
     # 2. Try JSON Lines / NDJSON (one JSON object per line)
     lines = [line.strip() for line in raw.splitlines() if line.strip()]
-    if lines and all(l.startswith("{") and l.endswith("}") for l in lines[:min(10, len(lines))]):
+    if lines and all(item.startswith("{") and item.endswith("}") for item in lines[: min(10, len(lines))]):
         ndjson_records = []
         try:
             for line in lines:
@@ -74,26 +88,30 @@ def parse_any_dataset_payload(content_str: str, filename: str = "") -> List[Dict
     except Exception as e:
         raise ValueError(f"Could not parse payload as JSON, NDJSON, or CSV: {e}")
 
-def load_source_schema() -> Dict[str, Any]:
+
+def load_source_schema() -> dict[str, Any]:
     path = os.path.join(DATA_DIR, "source_schema.json")
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
-def load_target_schema() -> Dict[str, Any]:
+
+def load_target_schema() -> dict[str, Any]:
     path = os.path.join(DATA_DIR, "target_schema.json")
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
-def load_sample_records() -> List[Dict[str, Any]]:
+
+def load_sample_records() -> list[dict[str, Any]]:
     path = os.path.join(DATA_DIR, "sample_records.json")
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
-def infer_schema_from_records(records: List[Dict[str, Any]], dataset_name: str = "Uploaded Dataset") -> Dict[str, Any]:
+
+def infer_schema_from_records(records: list[dict[str, Any]], dataset_name: str = "Uploaded Dataset") -> dict[str, Any]:
     """Dynamically infers field types, names, and nullability from arbitrary records."""
     if not records:
         return {"schema_id": "empty_dataset", "name": dataset_name, "description": "Empty dataset", "fields": []}
-    
+
     # Collect all unique columns across all records
     all_cols = []
     seen = set()
@@ -103,55 +121,58 @@ def infer_schema_from_records(records: List[Dict[str, Any]], dataset_name: str =
                 if k not in seen:
                     seen.add(k)
                     all_cols.append(k)
-    
+
     fields = []
     for col in all_cols:
         values = [r.get(col) for r in records if r.get(col) is not None and str(r.get(col)).strip() != ""]
         nullable = len(values) < len(records)
-        
+
         inferred_type = "string"
         if values:
             if all(str(v).isdigit() or (str(v).startswith("-") and str(v)[1:].isdigit()) for v in values):
                 inferred_type = "int"
             elif all(re.match(r"^-?\d+(\.\d+)?$", str(v)) for v in values):
                 inferred_type = "float"
-        
-        fields.append({
-            "name": col,
-            "data_type": inferred_type,
-            "nullable": nullable,
-            "description": f"Source column '{col}' ({inferred_type})",
-            "constraints": {}
-        })
-    
+
+        fields.append(
+            {
+                "name": col,
+                "data_type": inferred_type,
+                "nullable": nullable,
+                "description": f"Source column '{col}' ({inferred_type})",
+                "constraints": {},
+            }
+        )
+
     return {
         "schema_id": f"source_{re.sub(r'[^a-zA-Z0-9_]', '_', dataset_name.lower())}",
         "name": dataset_name,
         "description": f"Inferred schema from {len(records)} records",
-        "fields": fields
+        "fields": fields,
     }
+
 
 class InspectionTools:
     """Standardized inspection and validation tools for the AI migration agent."""
 
-    def __init__(self, records: Optional[List[Dict[str, Any]]] = None):
+    def __init__(self, records: list[dict[str, Any]] | None = None):
         self.records = records if records is not None else load_sample_records()
         self.source_schema = load_source_schema()
         self.target_schema = load_target_schema()
 
-    def inspect_source_schema(self) -> Dict[str, Any]:
+    def inspect_source_schema(self) -> dict[str, Any]:
         """Returns the source schema structure, field types, and nullability."""
         return self.source_schema
 
-    def inspect_target_schema(self) -> Dict[str, Any]:
+    def inspect_target_schema(self) -> dict[str, Any]:
         """Returns target schema constraints, required fields, and enum definitions."""
         return self.target_schema
 
-    def sample_records(self, n: int = 5) -> List[Dict[str, Any]]:
+    def sample_records(self, n: int = 5) -> list[dict[str, Any]]:
         """Returns n raw source records for inspection."""
         return self.records[:n]
 
-    def profile_source_column(self, column_name: str) -> Dict[str, Any]:
+    def profile_source_column(self, column_name: str) -> dict[str, Any]:
         """Profiles a column: null rates, distinct values, anomalies, and sample patterns."""
         total = len(self.records)
         values = [r.get(column_name) for r in self.records]
@@ -160,7 +181,7 @@ class InspectionTools:
         non_null_values = [v for v in values if v is not None and str(v).strip() != ""]
 
         distinct_vals = list(set(non_null_values))
-        freq_map: Dict[str, int] = {}
+        freq_map: dict[str, int] = {}
         for v in non_null_values:
             k = str(v)
             freq_map[k] = freq_map.get(k, 0) + 1
@@ -187,26 +208,22 @@ class InspectionTools:
             "distinct_count": len(distinct_vals),
             "top_frequencies": [{"value": k, "count": count} for k, count in top_values],
             "sample_distinct_values": [str(x) for x in distinct_vals[:8]],
-            "patterns_detected": patterns_detected
+            "patterns_detected": patterns_detected,
         }
 
-    def profile_all_columns(self) -> Dict[str, Any]:
+    def profile_all_columns(self) -> dict[str, Any]:
         """Profiles every column in the dataset."""
         fields = [f["name"] for f in self.source_schema.get("fields", [])]
         return {f_name: self.profile_source_column(f_name) for f_name in fields}
 
     def test_rule_on_column(
-        self,
-        column_name: str,
-        rule_id: str,
-        params: Dict[str, Any],
-        sample_limit: int = 200
-    ) -> Dict[str, Any]:
+        self, column_name: str, rule_id: str, params: dict[str, Any], sample_limit: int = 200
+    ) -> dict[str, Any]:
         """Validates a candidate transformation rule against a slice of source records."""
         sample_slice = self.records[:sample_limit]
         success_count = 0
         error_count = 0
-        errors: List[Dict[str, Any]] = []
+        errors: list[dict[str, Any]] = []
 
         for idx, rec in enumerate(sample_slice):
             val = rec.get(column_name)
@@ -214,11 +231,7 @@ class InspectionTools:
             if err:
                 error_count += 1
                 if len(errors) < 5:
-                    errors.append({
-                        "row_index": idx,
-                        "raw_value": val,
-                        "error_message": err
-                    })
+                    errors.append({"row_index": idx, "raw_value": val, "error_message": err})
             else:
                 success_count += 1
 
@@ -229,5 +242,5 @@ class InspectionTools:
             "success_count": success_count,
             "error_count": error_count,
             "success_rate_percent": round((success_count / len(sample_slice)) * 100, 2) if sample_slice else 0.0,
-            "sample_errors": errors
+            "sample_errors": errors,
         }

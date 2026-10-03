@@ -1,26 +1,24 @@
 from __future__ import annotations
+
 import hashlib
-import json
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from ..models.schemas import ReconciliationReport
-from .target_store import TargetDatabaseStore
 from .profiler import load_sample_records
+from .target_store import TargetDatabaseStore
+
 
 class ReconciliationEngine:
-    """Performs rigorous post-migration auditing, comparing source totals, 
+    """Performs rigorous post-migration auditing, comparing source totals,
     target state, and quarantine ledgers to verify zero silent data loss."""
 
-    def __init__(self, target_store: Optional[TargetDatabaseStore] = None):
+    def __init__(self, target_store: TargetDatabaseStore | None = None):
         self.store = target_store or TargetDatabaseStore()
 
     def reconcile(
-        self,
-        run_id: str,
-        plan_version: int,
-        source_records: Optional[List[Dict[str, Any]]] = None
+        self, run_id: str, plan_version: int, source_records: list[dict[str, Any]] | None = None
     ) -> ReconciliationReport:
         records = source_records if source_records is not None else load_sample_records()
         total_source = len(records)
@@ -29,16 +27,23 @@ class ReconciliationEngine:
         # 1. Target store metrics scoped to run_id if specified
         with self.store.get_connection() as conn:
             if run_id and not run_id.startswith("latest_"):
-                tgt_row = conn.execute("SELECT COUNT(*) as c, COALESCE(SUM(balance_due), 0.0) as s FROM customers WHERE migration_run_id = ?", (run_id,)).fetchone()
+                tgt_row = conn.execute(
+                    "SELECT COUNT(*) as c, COALESCE(SUM(balance_due), 0.0) as s FROM customers WHERE migration_run_id = ?",
+                    (run_id,),
+                ).fetchone()
                 target_count = tgt_row["c"] if tgt_row and tgt_row["c"] > 0 else self.store.get_customer_count()
-                target_balance_total = round(tgt_row["s"], 2) if tgt_row and tgt_row["c"] > 0 else self.store.get_financial_aggregate()
+                target_balance_total = (
+                    round(tgt_row["s"], 2) if tgt_row and tgt_row["c"] > 0 else self.store.get_financial_aggregate()
+                )
             else:
                 target_count = self.store.get_customer_count()
                 target_balance_total = self.store.get_financial_aggregate()
 
             # 2. Quarantine ledger metrics for this run (or overall)
             if run_id and not run_id.startswith("latest_"):
-                q_row = conn.execute("SELECT COUNT(*) as q_count FROM quarantine_ledger WHERE run_id = ?", (run_id,)).fetchone()
+                q_row = conn.execute(
+                    "SELECT COUNT(*) as q_count FROM quarantine_ledger WHERE run_id = ?", (run_id,)
+                ).fetchone()
                 quarantine_count = q_row["q_count"] if q_row else 0
             else:
                 # Latest dry run or overall quarantine
@@ -53,6 +58,7 @@ class ReconciliationEngine:
 
         # 3. Source monetary aggregate (dynamically find balance/amount column)
         from .transforms import TransformationRegistry
+
         balance_field = None
         if records:
             first_rec = records[0]
@@ -84,10 +90,10 @@ class ReconciliationEngine:
             unaccounted = 0
         elif unaccounted == 0 and quarantine_count == 0:
             verdict = "PASSED_EXACT"
-            mass_conserved = (duplicate_count == 0)
+            mass_conserved = duplicate_count == 0
         elif unaccounted == 0 and quarantine_count > 0:
             verdict = "PASSED_WITH_QUARANTINE"
-            mass_conserved = (duplicate_count == 0)
+            mass_conserved = duplicate_count == 0
         else:
             verdict = "DISCREPANCY_DETECTED"
             mass_conserved = False
@@ -103,7 +109,7 @@ class ReconciliationEngine:
             f"Unaccounted delta: {unaccounted} records",
             f"Duplicate natural keys detected: {duplicate_count}",
             f"Source gross balance aggregate: ${source_balance_sum:,.2f}",
-            f"Target gross balance aggregate: ${target_balance_total:,.2f}"
+            f"Target gross balance aggregate: ${target_balance_total:,.2f}",
         ]
 
         if not mass_conserved:
@@ -119,7 +125,7 @@ class ReconciliationEngine:
                 "total_source_records": total_source,
                 "target_accepted_records": target_count,
                 "quarantined_records": quarantine_count,
-                "unaccounted_records": unaccounted
+                "unaccounted_records": unaccounted,
             },
             invariants_passed=mass_conserved,
             duplicate_count=duplicate_count,
@@ -129,8 +135,8 @@ class ReconciliationEngine:
                 "balance_due": {
                     "source_sum": source_balance_sum,
                     "target_sum": target_balance_total,
-                    "delta": round(abs(source_balance_sum - target_balance_total), 2)
+                    "delta": round(abs(source_balance_sum - target_balance_total), 2),
                 }
             },
-            details=details
+            details=details,
         )

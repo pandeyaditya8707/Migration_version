@@ -1,28 +1,30 @@
 from __future__ import annotations
+
+import re
 import time
 import uuid
-import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
+
 from ..models.schemas import (
-    MigrationPlan,
     DryRunSummary,
-    QuarantineRecord,
     FieldErrorEvidence,
-    DatasetSchema
+    MigrationPlan,
+    QuarantineRecord,
 )
+from .profiler import load_sample_records, load_target_schema
 from .transforms import apply_transformation
-from .profiler import load_target_schema, load_sample_records
+
 
 class DryRunEngine:
     """Simulates plan transformations deterministically without writing to the target store,
     capturing granular field-level error evidence for quarantined records."""
 
-    def __init__(self, target_schema: Optional[Dict[str, Any]] = None):
+    def __init__(self, target_schema: dict[str, Any] | None = None):
         self.target_schema = target_schema or load_target_schema()
         self.target_field_map = {f["name"]: f for f in self.target_schema.get("fields", [])}
 
     @staticmethod
-    def _validate_and_coerce_target_type(val: Any, target_type: str) -> Tuple[Any, Optional[str]]:
+    def _validate_and_coerce_target_type(val: Any, target_type: str) -> tuple[Any, str | None]:
         """Validates that a transformed value conforms to the target schema type,
         coercing where safe or returning a descriptive validation error message."""
         if val is None:
@@ -50,6 +52,7 @@ class DryRunEngine:
             try:
                 parsed = float(val_str)
                 import math
+
                 if math.isnan(parsed) or math.isinf(parsed):
                     return val, f"Invalid numeric float value: '{val}'"
                 return parsed, None
@@ -75,6 +78,7 @@ class DryRunEngine:
                 if re.match(r"^\d{4}-\d{2}-\d{2}$", val_date_part):
                     try:
                         from datetime import datetime
+
                         datetime.strptime(val_date_part, "%Y-%m-%d")
                         return val_date_part, None
                     except ValueError as e:
@@ -94,9 +98,9 @@ class DryRunEngine:
     def execute_dry_run(
         self,
         plan: MigrationPlan,
-        records: Optional[List[Dict[str, Any]]] = None,
-        target_schema: Optional[Dict[str, Any]] = None
-    ) -> Tuple[DryRunSummary, List[Dict[str, Any]], List[QuarantineRecord]]:
+        records: list[dict[str, Any]] | None = None,
+        target_schema: dict[str, Any] | None = None,
+    ) -> tuple[DryRunSummary, list[dict[str, Any]], list[QuarantineRecord]]:
         """Executes a complete deterministic simulation across all bounded records.
         Returns (summary, valid_target_records, quarantined_records)."""
         start_time = time.perf_counter()
@@ -104,20 +108,37 @@ class DryRunEngine:
         run_id = f"dry_run_{uuid.uuid4().hex[:8]}"
 
         active_schema = target_schema or self.target_schema
-        active_field_map = {f["name"]: f for f in active_schema.get("fields", [])} if active_schema else self.target_field_map
+        active_field_map = (
+            {f["name"]: f for f in active_schema.get("fields", [])} if active_schema else self.target_field_map
+        )
 
         # Check for unmapped required target fields
         mapped_target_fields = {m.target_field for m in plan.field_mappings}
         unmapped_required_fields = [
-            f["name"] for f in (active_schema.get("fields", []) if active_schema else [])
+            f["name"]
+            for f in (active_schema.get("fields", []) if active_schema else [])
             if (not f.get("nullable", True)) and f["name"] not in mapped_target_fields and f.get("default") is None
         ]
 
-        valid_records: List[Dict[str, Any]] = []
-        quarantined_records: List[QuarantineRecord] = []
-        field_error_breakdown: Dict[str, int] = {}
+        # Dynamic natural key resolution from active target schema or plan
+        schema_nk = None
+        if active_schema:
+            schema_nk = active_schema.get("natural_key") or active_schema.get("primary_key")
 
-        def _get_val(rec: Dict[str, Any], col: str) -> Any:
+        nk_target_name = (
+            "natural_key" if "natural_key" in active_field_map else (schema_nk if isinstance(schema_nk, str) else "id")
+        )
+        nk_source_fields: list[str] = []
+        for m in plan.field_mappings:
+            if m.target_field == nk_target_name:
+                nk_source_fields = m.source_fields
+                break
+
+        valid_records: list[dict[str, Any]] = []
+        quarantined_records: list[QuarantineRecord] = []
+        field_error_breakdown: dict[str, int] = {}
+
+        def _get_val(rec: dict[str, Any], col: str) -> Any:
             if col in rec:
                 return rec[col]
             norm = col.lower().replace("-", "_").strip()
@@ -127,31 +148,57 @@ class DryRunEngine:
             return None
 
         for row_idx, src_rec in enumerate(records_to_process):
-            row_errors: List[FieldErrorEvidence] = []
-            target_row: Dict[str, Any] = {}
-            natural_key = (
-                src_rec.get("legacy_account_id") or
-                src_rec.get("id") or
-                src_rec.get("account_id") or
-                src_rec.get("inv_num") or
-                src_rec.get("order_num") or
-                src_rec.get("encounter_id") or
-                src_rec.get("sku_code") or
-                src_rec.get("user_id") or
-                f"rec_{row_idx}"
-            )
+            row_errors: list[FieldErrorEvidence] = []
+            target_row: dict[str, Any] = {}
+
+            # Dynamic natural key extraction
+            if nk_source_fields:
+                nk_parts = [
+                    str(_get_val(src_rec, sf) or "").strip()
+                    for sf in nk_source_fields
+                    if _get_val(src_rec, sf) is not None
+                ]
+                natural_key = "_".join(nk_parts) if nk_parts else None
+            elif schema_nk:
+                if isinstance(schema_nk, list):
+                    nk_parts = [str(_get_val(src_rec, sf) or "").strip() for sf in schema_nk]
+                    natural_key = "_".join(nk_parts)
+                else:
+                    natural_key = str(_get_val(src_rec, schema_nk) or "").strip()
+            else:
+                natural_key = None
+
+            if not natural_key:
+                for c_cand in [
+                    "legacy_account_id",
+                    "id",
+                    "account_id",
+                    "inv_num",
+                    "order_num",
+                    "encounter_id",
+                    "sku_code",
+                    "user_id",
+                ]:
+                    v_cand = _get_val(src_rec, c_cand)
+                    if v_cand is not None and str(v_cand).strip():
+                        natural_key = str(v_cand).strip()
+                        break
+            if not natural_key:
+                natural_key = f"rec_{row_idx}"
 
             # Pre-check: If required target fields are unmapped in plan, flag error immediately
             for unmapped_col in unmapped_required_fields:
                 sugg = f"Add a mapping in MigrationPlan for required target field '{unmapped_col}'."
-                row_errors.append(FieldErrorEvidence(
-                    field=unmapped_col,
-                    rule="REQUIRED_FIELD_UNMAPPED",
-                    severity="CRITICAL",
-                    error_message=f"Required target field '{unmapped_col}' (NOT NULL) has no mapping in MigrationPlan.",
-                    raw_value=None,
-                    ai_suggestion=sugg
-                ))
+                row_errors.append(
+                    FieldErrorEvidence(
+                        field=unmapped_col,
+                        rule="REQUIRED_FIELD_UNMAPPED",
+                        severity="CRITICAL",
+                        error_message=f"Required target field '{unmapped_col}' (NOT NULL) has no mapping in MigrationPlan.",
+                        raw_value=None,
+                        ai_suggestion=sugg,
+                    )
+                )
                 field_error_breakdown[unmapped_col] = field_error_breakdown.get(unmapped_col, 0) + 1
 
             for mapping in plan.field_mappings:
@@ -175,22 +222,22 @@ class DryRunEngine:
 
                 # Apply transformation
                 transformed_val, transform_err = apply_transformation(
-                    mapping.transformation,
-                    src_val,
-                    mapping.parameters
+                    mapping.transformation, src_val, mapping.parameters
                 )
 
                 if transform_err:
-                    src_label = ', '.join(mapping.source_fields) if mapping.source_fields else 'input'
+                    src_label = ", ".join(mapping.source_fields) if mapping.source_fields else "input"
                     sugg = f"Configure '{mapping.transformation}' with fallback parameter or cleanse source field '{src_label}'."
-                    row_errors.append(FieldErrorEvidence(
-                        field=tgt_field,
-                        rule=mapping.transformation,
-                        severity="CRITICAL",
-                        error_message=transform_err,
-                        raw_value=src_val,
-                        ai_suggestion=sugg
-                    ))
+                    row_errors.append(
+                        FieldErrorEvidence(
+                            field=tgt_field,
+                            rule=mapping.transformation,
+                            severity="CRITICAL",
+                            error_message=transform_err,
+                            raw_value=src_val,
+                            ai_suggestion=sugg,
+                        )
+                    )
                     field_error_breakdown[tgt_field] = field_error_breakdown.get(tgt_field, 0) + 1
                     continue
 
@@ -202,14 +249,16 @@ class DryRunEngine:
                         transformed_val = fb
                     else:
                         sugg = f"Target field '{tgt_field}' is NOT NULL. Configure fallback substitution (e.g. 'UNKNOWN' or 'VALUED_CUSTOMER') or substitute default value."
-                        row_errors.append(FieldErrorEvidence(
-                            field=tgt_field,
-                            rule="NOT_NULL_CONSTRAINT",
-                            severity="CRITICAL",
-                            error_message=f"Target field '{tgt_field}' is NOT NULL, but evaluated to null/empty",
-                            raw_value=src_val,
-                            ai_suggestion=sugg
-                        ))
+                        row_errors.append(
+                            FieldErrorEvidence(
+                                field=tgt_field,
+                                rule="NOT_NULL_CONSTRAINT",
+                                severity="CRITICAL",
+                                error_message=f"Target field '{tgt_field}' is NOT NULL, but evaluated to null/empty",
+                                raw_value=src_val,
+                                ai_suggestion=sugg,
+                            )
+                        )
                         field_error_breakdown[tgt_field] = field_error_breakdown.get(tgt_field, 0) + 1
                         continue
 
@@ -223,33 +272,43 @@ class DryRunEngine:
                         else:
                             default_fallback = allowed_enums[0] if allowed_enums else "UNKNOWN"
                             sugg = f"Value '{transformed_val}' is not in target enum list. Update ENUM_LOOKUP mapping dictionary or set fallback='{default_fallback}'."
-                            row_errors.append(FieldErrorEvidence(
-                                field=tgt_field,
-                                rule="ENUM_CONSTRAINT",
-                                severity="CRITICAL",
-                                error_message=f"Value '{transformed_val}' is not in allowed target enum list: {allowed_enums}",
-                                raw_value=src_val,
-                                ai_suggestion=sugg
-                            ))
+                            row_errors.append(
+                                FieldErrorEvidence(
+                                    field=tgt_field,
+                                    rule="ENUM_CONSTRAINT",
+                                    severity="CRITICAL",
+                                    error_message=f"Value '{transformed_val}' is not in allowed target enum list: {allowed_enums}",
+                                    raw_value=src_val,
+                                    ai_suggestion=sugg,
+                                )
+                            )
                             field_error_breakdown[tgt_field] = field_error_breakdown.get(tgt_field, 0) + 1
                             continue
 
                 # 3. Regex constraint check
-                regex_pattern = tgt_constraints.get("regex")
+                regex_pattern = tgt_constraints.get("regex") or tgt_constraints.get("pattern")
                 if regex_pattern and transformed_val is not None:
-                    if not re.search(regex_pattern, str(transformed_val)):
-                        if (mapping.parameters.get("on_invalid") == "null" or mapping.parameters.get("null_on_invalid")) and tgt_nullable:
+                    try:
+                        matches = bool(re.search(regex_pattern, str(transformed_val)))
+                    except Exception:
+                        matches = False
+                    if not matches:
+                        if (
+                            mapping.parameters.get("on_invalid") == "null" or mapping.parameters.get("null_on_invalid")
+                        ) and tgt_nullable:
                             transformed_val = None
                         else:
                             sugg = f"Value '{transformed_val}' fails regex '{regex_pattern}'. Apply pre-formatting transform (e.g. phone E.164 normalization) or null-substitution if optional."
-                            row_errors.append(FieldErrorEvidence(
-                                field=tgt_field,
-                                rule="REGEX_CONSTRAINT",
-                                severity="CRITICAL",
-                                error_message=f"Value '{transformed_val}' violates target regex pattern: '{regex_pattern}'",
-                                raw_value=src_val,
-                                ai_suggestion=sugg
-                            ))
+                            row_errors.append(
+                                FieldErrorEvidence(
+                                    field=tgt_field,
+                                    rule="REGEX_CONSTRAINT",
+                                    severity="CRITICAL",
+                                    error_message=f"Value '{transformed_val}' violates target regex pattern: '{regex_pattern}'",
+                                    raw_value=src_val,
+                                    ai_suggestion=sugg,
+                                )
+                            )
                             field_error_breakdown[tgt_field] = field_error_breakdown.get(tgt_field, 0) + 1
                             continue
 
@@ -258,14 +317,16 @@ class DryRunEngine:
                     coerced_val, type_err = self._validate_and_coerce_target_type(transformed_val, tgt_type)
                     if type_err:
                         sugg = f"Configure a transformation rule to convert source value to '{tgt_type}'."
-                        row_errors.append(FieldErrorEvidence(
-                            field=tgt_field,
-                            rule="TYPE_INCOMPATIBILITY",
-                            severity="CRITICAL",
-                            error_message=type_err,
-                            raw_value=src_val,
-                            ai_suggestion=sugg
-                        ))
+                        row_errors.append(
+                            FieldErrorEvidence(
+                                field=tgt_field,
+                                rule="TYPE_INCOMPATIBILITY",
+                                severity="CRITICAL",
+                                error_message=type_err,
+                                raw_value=src_val,
+                                ai_suggestion=sugg,
+                            )
+                        )
                         field_error_breakdown[tgt_field] = field_error_breakdown.get(tgt_field, 0) + 1
                         continue
                     transformed_val = coerced_val
@@ -282,7 +343,7 @@ class DryRunEngine:
                     source_natural_key=str(natural_key) if natural_key else None,
                     source_payload=src_rec,
                     errors=row_errors,
-                    ai_remediation_summary=row_errors[0].ai_suggestion if row_errors else "Review source record schema"
+                    ai_remediation_summary=row_errors[0].ai_suggestion if row_errors else "Review source record schema",
                 )
                 quarantined_records.append(q_rec)
             else:
@@ -299,7 +360,7 @@ class DryRunEngine:
             rejected_count=len(quarantined_records),
             execution_time_ms=round(elapsed_ms, 2),
             field_error_breakdown=field_error_breakdown,
-            quarantine_sample=quarantined_records[:200]  # Comprehensive preview up to 200
+            quarantine_sample=quarantined_records[:200],  # Comprehensive preview up to 200
         )
 
         return summary, valid_records, quarantined_records

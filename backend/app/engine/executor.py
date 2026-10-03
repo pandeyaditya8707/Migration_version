@@ -1,25 +1,26 @@
 from __future__ import annotations
+
+import json
 import time
 import uuid
-import json
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from ..models.schemas import (
-    MigrationPlan,
     ExecutionRunResult,
-    QuarantineRecord,
+    MigrationPlan,
     RollbackResult,
 )
 from .dry_run import DryRunEngine
-from .target_store import TargetDatabaseStore
 from .history import compute_plan_fingerprint
+from .target_store import TargetDatabaseStore
+
 
 class ExecutionEngine:
     """Executes approved migration plans into the mock target store.
     Strictly requires plan.status == 'APPROVED' and plan.approval_fingerprint integrity."""
 
-    def __init__(self, target_store: Optional[TargetDatabaseStore] = None):
+    def __init__(self, target_store: TargetDatabaseStore | None = None):
         self.store = target_store or TargetDatabaseStore()
         self.dry_runner = DryRunEngine()
 
@@ -28,7 +29,7 @@ class ExecutionEngine:
         plan: MigrationPlan,
         actor: str = "Lead Data Engineer",
         is_retry: bool = False,
-        records: Optional[List[Dict[str, Any]]] = None
+        records: list[dict[str, Any]] | None = None,
     ) -> ExecutionRunResult:
         """Executes an approved migration plan into the mock target store.
         Strictly requires plan.status == 'APPROVED' and verified approval_fingerprint."""
@@ -63,31 +64,54 @@ class ExecutionEngine:
         with self.store.get_connection() as conn:
             conn.execute("BEGIN TRANSACTION")
             try:
-                # First, query existing natural keys in target store to detect duplicates
-                existing_rows = conn.execute("SELECT natural_key, customer_uuid FROM customers").fetchall()
-                existing_keys = {str(r["natural_key"]).strip(): r["customer_uuid"] for r in existing_rows}
+                # First, query existing natural keys in target store to detect duplicates and changes
+                existing_rows = {
+                    str(r["natural_key"]).strip(): dict(r) for r in conn.execute("SELECT * FROM customers").fetchall()
+                }
 
                 for rec in valid_records:
                     nat_key = str(rec.get("natural_key", "")).strip()
-                    if nat_key in existing_keys:
-                        # Record already exists!
-                        # Idempotent behavior: update timestamp and run_id without creating duplicate row
-                        conn.execute(
-                            """
-                            UPDATE customers
-                            SET first_name = ?, last_name = ?, email = ?, phone_e164 = ?,
-                                joined_at = ?, status = ?, balance_due = ?, risk_tier = ?,
-                                country_iso2 = ?, migration_run_id = ?, migrated_at = ?
-                            WHERE natural_key = ?
-                            """,
-                            (
-                                rec["first_name"], rec.get("last_name"), rec["email"], rec.get("phone_e164"),
-                                rec["joined_at"], rec["status"], rec["balance_due"], rec["risk_tier"],
-                                rec["country_iso2"], run_id, now_iso, nat_key
-                            )
+                    if nat_key in existing_rows:
+                        old_r = existing_rows[nat_key]
+                        is_diff = (
+                            old_r.get("first_name") != rec["first_name"]
+                            or old_r.get("last_name") != rec.get("last_name")
+                            or old_r.get("email") != rec["email"]
+                            or old_r.get("phone_e164") != rec.get("phone_e164")
+                            or str(old_r.get("joined_at")) != str(rec.get("joined_at"))
+                            or old_r.get("status") != rec.get("status")
+                            or float(old_r.get("balance_due") or 0.0) != float(rec.get("balance_due") or 0.0)
+                            or old_r.get("risk_tier") != rec.get("risk_tier")
+                            or old_r.get("country_iso2") != rec.get("country_iso2")
                         )
-                        skipped_duplicates += 1
-                        updated_count += 1
+                        if is_diff:
+                            conn.execute(
+                                """
+                                UPDATE customers
+                                SET first_name = ?, last_name = ?, email = ?, phone_e164 = ?,
+                                    joined_at = ?, status = ?, balance_due = ?, risk_tier = ?,
+                                    country_iso2 = ?, migration_run_id = ?, migrated_at = ?
+                                WHERE natural_key = ?
+                                """,
+                                (
+                                    rec["first_name"],
+                                    rec.get("last_name"),
+                                    rec["email"],
+                                    rec.get("phone_e164"),
+                                    rec["joined_at"],
+                                    rec["status"],
+                                    rec["balance_due"],
+                                    rec["risk_tier"],
+                                    rec["country_iso2"],
+                                    run_id,
+                                    now_iso,
+                                    nat_key,
+                                ),
+                            )
+                            updated_count += 1
+                            existing_rows[nat_key] = {**old_r, **rec}
+                        else:
+                            skipped_duplicates += 1
                     else:
                         conn.execute(
                             """
@@ -110,12 +134,22 @@ class ExecutionEngine:
                                 migrated_at = excluded.migrated_at
                             """,
                             (
-                                rec["customer_uuid"], nat_key, rec["first_name"], rec.get("last_name"),
-                                rec["email"], rec.get("phone_e164"), rec["joined_at"], rec["status"],
-                                rec["balance_due"], rec["risk_tier"], rec["country_iso2"], run_id, now_iso
-                            )
+                                rec["customer_uuid"],
+                                nat_key,
+                                rec["first_name"],
+                                rec.get("last_name"),
+                                rec["email"],
+                                rec.get("phone_e164"),
+                                rec["joined_at"],
+                                rec["status"],
+                                rec["balance_due"],
+                                rec["risk_tier"],
+                                rec["country_iso2"],
+                                run_id,
+                                now_iso,
+                            ),
                         )
-                        existing_keys[nat_key] = rec["customer_uuid"]
+                        existing_rows[nat_key] = dict(rec)
                         inserted_count += 1
 
                 # 4. Save quarantine records to quarantine ledger
@@ -128,9 +162,14 @@ class ExecutionEngine:
                         ) VALUES (?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
-                            q.quarantine_id, run_id, q.source_row_index, q.source_natural_key,
-                            json.dumps(q.source_payload), json.dumps([e.model_dump() for e in q.errors]), now_iso
-                        )
+                            q.quarantine_id,
+                            run_id,
+                            q.source_row_index,
+                            q.source_natural_key,
+                            json.dumps(q.source_payload),
+                            json.dumps([e.model_dump() for e in q.errors]),
+                            now_iso,
+                        ),
                     )
 
                 conn.commit()
@@ -155,8 +194,8 @@ class ExecutionEngine:
                 "updated_count": updated_count,
                 "skipped_duplicates_count": skipped_duplicates,
                 "quarantined_count": len(quarantine_records),
-                "is_retry": is_retry
-            }
+                "is_retry": is_retry,
+            },
         )
 
         return ExecutionRunResult(
@@ -171,15 +210,10 @@ class ExecutionEngine:
             execution_time_ms=round(elapsed_ms, 2),
             target_table_name="customers",
             snapshot_id=snapshot_id,
-            timestamp=now_iso
+            timestamp=now_iso,
         )
 
-    def rollback_migration(
-        self,
-        snapshot_id: str,
-        run_id: str,
-        actor: str = "Lead Data Engineer"
-    ) -> RollbackResult:
+    def rollback_migration(self, snapshot_id: str, run_id: str, actor: str = "Lead Data Engineer") -> RollbackResult:
         """Rolls back the target customers table to the designated pre-migration snapshot."""
         count_before = self.store.get_customer_count()
         success, restored_count, remaining_count = self.store.rollback_to_snapshot(snapshot_id)
@@ -190,7 +224,7 @@ class ExecutionEngine:
                 status="FAILED",
                 message=f"Snapshot '{snapshot_id}' not found or rollback transaction failed",
                 records_removed=0,
-                target_records_remaining=count_before
+                target_records_remaining=count_before,
             )
 
         records_removed = max(0, count_before - remaining_count)
@@ -205,8 +239,8 @@ class ExecutionEngine:
                 "snapshot_id": snapshot_id,
                 "records_before_rollback": count_before,
                 "records_after_rollback": remaining_count,
-                "records_removed": records_removed
-            }
+                "records_removed": records_removed,
+            },
         )
 
         return RollbackResult(
@@ -214,5 +248,5 @@ class ExecutionEngine:
             status="SUCCESS",
             message=f"Successfully restored target store to snapshot state ({remaining_count} records remaining).",
             records_removed=records_removed,
-            target_records_remaining=remaining_count
+            target_records_remaining=remaining_count,
         )

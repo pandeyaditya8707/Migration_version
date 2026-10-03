@@ -1,29 +1,36 @@
-import pytest
-from fastapi.testclient import TestClient
-from app.main import app, workbench_log_handler, set_v2_active_schema, set_v2_active_plan, dynamic_store, ollama_agent
-from app.models import MigrationPlan, FieldMapping
-from app.models.schemas import current_utc_iso
 import json
+
+import pytest
+from app.main import (
+    app,
+    dynamic_store,
+    ollama_agent,
+)
+from app.models import FieldMapping, MigrationPlan
+from fastapi.testclient import TestClient
+
 
 @pytest.fixture
 def client():
     return TestClient(app)
 
+
 def mock_dynamic_plan(*args, **kwargs):
-    source_schema = kwargs.get("source_schema") or {}
     target_schema = kwargs.get("target_schema") or {}
     tgt_fields = target_schema.get("fields", [])
     mappings = []
     for tf in tgt_fields:
-        mappings.append(FieldMapping(
-            target_field=tf["name"],
-            source_fields=[tf["name"]],
-            transformation="DIRECT_COPY",
-            parameters={},
-            risk_level="LOW",
-            risk_rationale="Direct copy",
-            notes="Mocked AI Plan"
-        ))
+        mappings.append(
+            FieldMapping(
+                target_field=tf["name"],
+                source_fields=[tf["name"]],
+                transformation="DIRECT_COPY",
+                parameters={},
+                risk_level="LOW",
+                risk_rationale="Direct copy",
+                notes="Mocked AI Plan",
+            )
+        )
     return MigrationPlan(
         plan_id="plan_v1",
         version=kwargs.get("plan_version", 1),
@@ -31,8 +38,9 @@ def mock_dynamic_plan(*args, **kwargs):
         description="Fast mock AI plan for testing",
         source_schema_id="source_test",
         target_schema_id="target_test",
-        field_mappings=mappings
+        field_mappings=mappings,
     )
+
 
 def test_repeated_uploads_mode2_resilience(client, monkeypatch):
     """Verifies that repeatedly uploading the same (or changing) dataset never crashes, desyncs, or corrupts state."""
@@ -56,8 +64,8 @@ INV-005,Omega Corp,4200.20,2024-01-20T11:45:00Z,PENDING
             {"name": "customer_name", "type": "STRING", "nullable": False},
             {"name": "amount_due", "type": "FLOAT", "nullable": False},
             {"name": "created_at", "type": "TIMESTAMP", "nullable": True},
-            {"name": "status", "type": "STRING", "nullable": False}
-        ]
+            {"name": "status", "type": "STRING", "nullable": False},
+        ],
     }
     schema_res = client.post("/api/v2/schema/target", json=schema_payload)
     assert schema_res.status_code == 200
@@ -66,7 +74,7 @@ INV-005,Omega Corp,4200.20,2024-01-20T11:45:00Z,PENDING
     for i in range(5):
         upload_res = client.post(
             "/api/v2/upload/source",
-            files={"file": (f"legacy_invoices_v1_dummy.csv", csv_content.encode("utf-8"), "text/csv")}
+            files={"file": ("legacy_invoices_v1_dummy.csv", csv_content.encode("utf-8"), "text/csv")},
         )
         assert upload_res.status_code == 200, f"Upload iteration {i} failed: {upload_res.text}"
         data = upload_res.json()
@@ -81,6 +89,7 @@ INV-005,Omega Corp,4200.20,2024-01-20T11:45:00Z,PENDING
     assert plan_res.status_code == 200
     plan_data = plan_res.json()
     assert plan_data["status"] in ["PROPOSED", "DRAFT"]
+
 
 def test_mode2_end_to_end_lifecycle_and_rollback(client, monkeypatch):
     """Verifies Mode 2 Plan Approval, Dry-Run, Execution, and Rollback work end-to-end without bugs."""
@@ -106,16 +115,15 @@ ORD-103,Gamma Systems,90.25,2024-02-03
             {"name": "order_ref", "type": "STRING", "nullable": False},
             {"name": "client_title", "type": "STRING", "nullable": False},
             {"name": "total_val", "type": "FLOAT", "nullable": False},
-            {"name": "order_date", "type": "STRING", "nullable": True}
-        ]
+            {"name": "order_date", "type": "STRING", "nullable": True},
+        ],
     }
     schema_res = client.post("/api/v2/schema/target", json=schema_payload)
     assert schema_res.status_code == 200
 
     # 2. Upload dataset
     upload_res = client.post(
-        "/api/v2/upload/source",
-        files={"file": ("orders.csv", csv_content.encode("utf-8"), "text/csv")}
+        "/api/v2/upload/source", files={"file": ("orders.csv", csv_content.encode("utf-8"), "text/csv")}
     )
     assert upload_res.status_code == 200
 
@@ -158,6 +166,7 @@ ORD-103,Gamma Systems,90.25,2024-02-03
     assert target_after.status_code == 200
     assert target_after.json()["total_records"] == 0
 
+
 def test_system_logs_subsystem_api(client):
     """Verifies that system logs capture events, support filtering, and clear properly."""
     # 1. Fetch system logs
@@ -171,8 +180,8 @@ def test_system_logs_subsystem_api(client):
     # 2. Filter by level
     res_info = client.get("/api/logs?limit=50&level=INFO")
     assert res_info.status_code == 200
-    for l in res_info.json()["logs"]:
-        assert l["level"] == "INFO"
+    for log_item in res_info.json()["logs"]:
+        assert log_item["level"] == "INFO"
 
     # 3. Clear logs
     res_clear = client.post("/api/logs/clear")
@@ -184,13 +193,18 @@ def test_system_logs_subsystem_api(client):
     assert res_after.status_code == 200
     assert len(res_after.json()["logs"]) == 0
 
+
 def test_standalone_logs_route(client):
     """Verifies that GET /logs serves the standalone HTML log explorer page."""
     res = client.get("/logs")
     assert res.status_code == 200
     assert "text/html" in res.headers["content-type"]
-    assert "Autonomous Server &amp; AI Copilot Diagnostics" in res.text or "Autonomous Server & AI Copilot Diagnostics" in res.text
+    assert (
+        "Autonomous Server &amp; AI Copilot Diagnostics" in res.text
+        or "Autonomous Server & AI Copilot Diagnostics" in res.text
+    )
     assert "/api/logs" in res.text
+
 
 def test_all_json_and_csv_input_types_mode2(client, monkeypatch):
     """Verifies that Mode 2 upload handles ALL input formats without 502 or 500:
@@ -207,35 +221,37 @@ def test_all_json_and_csv_input_types_mode2(client, monkeypatch):
     monkeypatch.setattr(ollama_agent, "_call_ollama_llm", mock_dynamic_plan)
 
     # 1. Standard JSON array
-    json_array = json.dumps([
-        {"inv_id": "I-1", "client": "Alpha", "amount": 100.0},
-        {"inv_id": "I-2", "client": "Beta", "amount": 200.0}
-    ])
-    r1 = client.post("/api/v2/upload/source", files={"file": ("invoices.json", json_array.encode("utf-8"), "application/json")})
+    json_array = json.dumps(
+        [{"inv_id": "I-1", "client": "Alpha", "amount": 100.0}, {"inv_id": "I-2", "client": "Beta", "amount": 200.0}]
+    )
+    r1 = client.post(
+        "/api/v2/upload/source", files={"file": ("invoices.json", json_array.encode("utf-8"), "application/json")}
+    )
     assert r1.status_code == 200
     assert r1.json()["total_records"] == 2
     assert "inv_id" in [f["name"] for f in r1.json()["source_schema"]["fields"]]
 
     # 2. JSON with 'records' wrapper
-    json_records = json.dumps({
-        "status": "success",
-        "records": [
-            {"order_no": "ORD-1", "item": "Widget", "qty": 10},
-            {"order_no": "ORD-2", "item": "Gadget", "qty": 5}
-        ]
-    })
-    r2 = client.post("/api/v2/upload/source", files={"file": ("dataset.json", json_records.encode("utf-8"), "application/json")})
+    json_records = json.dumps(
+        {
+            "status": "success",
+            "records": [
+                {"order_no": "ORD-1", "item": "Widget", "qty": 10},
+                {"order_no": "ORD-2", "item": "Gadget", "qty": 5},
+            ],
+        }
+    )
+    r2 = client.post(
+        "/api/v2/upload/source", files={"file": ("dataset.json", json_records.encode("utf-8"), "application/json")}
+    )
     assert r2.status_code == 200
     assert r2.json()["total_records"] == 2
 
     # 3. JSON with 'invoices' wrapper
-    json_invoices = json.dumps({
-        "invoices": [
-            {"code": "INV-100", "due": 500},
-            {"code": "INV-200", "due": 750}
-        ]
-    })
-    r3 = client.post("/api/v2/upload/source", files={"file": ("data.json", json_invoices.encode("utf-8"), "application/json")})
+    json_invoices = json.dumps({"invoices": [{"code": "INV-100", "due": 500}, {"code": "INV-200", "due": 750}]})
+    r3 = client.post(
+        "/api/v2/upload/source", files={"file": ("data.json", json_invoices.encode("utf-8"), "application/json")}
+    )
     assert r3.status_code == 200
     assert r3.json()["total_records"] == 2
 
@@ -254,7 +270,9 @@ def test_all_json_and_csv_input_types_mode2(client, monkeypatch):
 
     # 6. Tab-delimited TSV
     tsv = "code\tcity\tpop\nNYC\tNew York\t8000000\nLON\tLondon\t9000000\n"
-    r6 = client.post("/api/v2/upload/source", files={"file": ("cities.tsv", tsv.encode("utf-8"), "text/tab-separated-values")})
+    r6 = client.post(
+        "/api/v2/upload/source", files={"file": ("cities.tsv", tsv.encode("utf-8"), "text/tab-separated-values")}
+    )
     assert r6.status_code == 200
     assert r6.json()["total_records"] == 2
 

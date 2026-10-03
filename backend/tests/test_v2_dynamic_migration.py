@@ -1,15 +1,15 @@
 import pytest
-from fastapi.testclient import TestClient
-from app.main import app
 from app.engine.dynamic_store import DynamicDatabaseStore
-
-from app.models import MigrationPlan, FieldMapping, ClarificationQuestion
+from app.main import app, ollama_agent
+from app.models import FieldMapping, MigrationPlan
 from app.models.schemas import current_utc_iso
-from app.main import ollama_agent
+from fastapi.testclient import TestClient
+
 
 @pytest.fixture
 def client():
     return TestClient(app)
+
 
 def mock_ai_plan(*args, **kwargs):
     now_iso = current_utc_iso()
@@ -28,7 +28,7 @@ def mock_ai_plan(*args, **kwargs):
                 parameters={},
                 risk_level="LOW",
                 risk_rationale="Direct map of clinical encounter ID",
-                notes="Ollama AI Mapped"
+                notes="Ollama AI Mapped",
             ),
             FieldMapping(
                 target_field="patient_mrn",
@@ -37,7 +37,7 @@ def mock_ai_plan(*args, **kwargs):
                 parameters={},
                 risk_level="LOW",
                 risk_rationale="Mapped patient natural key MRN",
-                notes="Ollama AI Mapped"
+                notes="Ollama AI Mapped",
             ),
             FieldMapping(
                 target_field="patient_name",
@@ -46,7 +46,7 @@ def mock_ai_plan(*args, **kwargs):
                 parameters={"default": "Unknown Patient"},
                 risk_level="LOW",
                 risk_rationale="Mapped patient name with fallback default",
-                notes="Ollama AI Mapped"
+                notes="Ollama AI Mapped",
             ),
             FieldMapping(
                 target_field="fee_amount",
@@ -55,15 +55,15 @@ def mock_ai_plan(*args, **kwargs):
                 parameters={},
                 risk_level="LOW",
                 risk_rationale="Transformed currency charge to numeric fee_amount",
-                notes="Ollama AI Mapped"
-            )
+                notes="Ollama AI Mapped",
+            ),
         ],
         clarifications=[],
         status="PROPOSED",
         approved_by=None,
         approved_at=None,
         created_at=now_iso,
-        updated_at=now_iso
+        updated_at=now_iso,
     )
 
 
@@ -83,8 +83,8 @@ def test_dynamic_database_store_direct():
             {"name": "sku_code", "data_type": "string", "nullable": False, "constraints": {"unique": True}},
             {"name": "item_name", "data_type": "string", "nullable": False},
             {"name": "quantity", "data_type": "int", "nullable": False},
-            {"name": "unit_price", "data_type": "float", "nullable": False}
-        ]
+            {"name": "unit_price", "data_type": "float", "nullable": False},
+        ],
     }
 
     # 1. Compile and create table
@@ -97,7 +97,7 @@ def test_dynamic_database_store_direct():
     # 2. Upsert batch
     rows = [
         {"sku_uuid": "u1", "sku_code": "SKU-001", "item_name": "Widget A", "quantity": 100, "unit_price": 9.99},
-        {"sku_uuid": "u2", "sku_code": "SKU-002", "item_name": "Widget B", "quantity": 50, "unit_price": 19.50}
+        {"sku_uuid": "u2", "sku_code": "SKU-002", "item_name": "Widget B", "quantity": 50, "unit_price": 19.50},
     ]
     inserted, updated, skipped = store.execute_upsert_batch("test_inventory", "sku_code", rows, run_id="run_1")
     assert inserted == 2
@@ -108,11 +108,12 @@ def test_dynamic_database_store_direct():
     assert total == 2
     assert len(recs) == 2
 
-    # 3. Idempotent Retry - Should update existing, zero new inserts
+    # 3. Idempotent Retry - Should update existing, zero new inserts, zero double counting
     inserted2, updated2, skipped2 = store.execute_upsert_batch("test_inventory", "sku_code", rows, run_id="run_2")
     assert inserted2 == 0
     assert updated2 == 2
-    assert skipped2 == 2
+    assert skipped2 == 0
+    assert inserted2 + updated2 + skipped2 == len(rows)
 
     # 4. Snapshot & Rollback (True Rollback Test: insert 3rd row, then roll back to 2 rows)
     snap_before_add = store.create_snapshot("test_inventory", run_id="snap_2_rows")
@@ -130,15 +131,13 @@ def test_dynamic_database_store_direct():
     total_after_rollback, _ = store.query_dynamic_records("test_inventory")
     assert total_after_rollback == 2
 
+
 def test_v2_api_lifecycle(client, monkeypatch):
     # Patch Ollama inference to return strict AI plan
     monkeypatch.setattr(ollama_agent, "_call_ollama_llm", mock_ai_plan)
 
     # 1. Test LLM Config endpoint
-    res_cfg = client.post("/api/v2/llm/config", json={
-        "host": "https://ollama.com/api",
-        "model": "llama3.2"
-    })
+    res_cfg = client.post("/api/v2/llm/config", json={"host": "https://ollama.com/api", "model": "llama3.2"})
     assert res_cfg.status_code == 200
     assert "LLM configured" in res_cfg.json()["message"]
 
@@ -152,7 +151,6 @@ def test_v2_api_lifecycle(client, monkeypatch):
         conn.execute("DROP TABLE IF EXISTS encounters;")
         conn.commit()
 
-
     custom_target = {
         "schema_id": "medical_encounters_v1",
         "table_name": "encounters",
@@ -162,8 +160,8 @@ def test_v2_api_lifecycle(client, monkeypatch):
             {"name": "encounter_id", "data_type": "string", "nullable": False, "constraints": {"unique": True}},
             {"name": "patient_mrn", "data_type": "string", "nullable": False, "constraints": {"unique": True}},
             {"name": "patient_name", "data_type": "string", "nullable": False},
-            {"name": "fee_amount", "data_type": "float", "nullable": False}
-        ]
+            {"name": "fee_amount", "data_type": "float", "nullable": False},
+        ],
     }
     res_schema = client.post("/api/v2/schema/target", json=custom_target)
     assert res_schema.status_code == 200
@@ -209,6 +207,7 @@ def test_v2_api_lifecycle(client, monkeypatch):
     assert recon["table_name"] == "encounters"
     assert recon["target_records"] > 0
 
+
 def test_v2_strict_ai_error_handling(client):
     """Verifies that when AI service is unavailable, an explicit error is returned with ZERO offline heuristic fallback."""
     orig_host = ollama_agent.host
@@ -217,7 +216,7 @@ def test_v2_strict_ai_error_handling(client):
     try:
         # Point to an unreachable host with no mock
         ollama_agent.set_config(host="http://127.0.0.1:54321", model="unreachable-ai")
-        
+
         # 1. Direct call to generate_plan must raise RuntimeError (not silently return heuristic plan)
         with pytest.raises(RuntimeError) as exc_info:
             ollama_agent.generate_plan(plan_version=1)
@@ -231,6 +230,7 @@ def test_v2_strict_ai_error_handling(client):
     finally:
         ollama_agent.set_config(host=orig_host, model=orig_model, api_key=orig_key)
 
+
 def test_v2_dataset_upload_complete_isolation_from_mode_1(client, monkeypatch):
     """Verifies that uploading a dataset in Mode 2 NEVER creates plans or alters state in Mode 1 (Benchmark CRM)."""
     monkeypatch.setattr(ollama_agent, "_call_ollama_llm", mock_ai_plan)
@@ -243,8 +243,7 @@ def test_v2_dataset_upload_complete_isolation_from_mode_1(client, monkeypatch):
     # 2. Upload custom dataset to Mode 2 intake endpoint
     csv_payload = "sku,product_title,price\nSKU-100,Super Gadget,49.99\nSKU-200,Mega Tool,29.95\n"
     res_upload = client.post(
-        "/api/v2/upload/source",
-        files={"file": ("warehouse_inventory.csv", csv_payload.encode("utf-8"), "text/csv")}
+        "/api/v2/upload/source", files={"file": ("warehouse_inventory.csv", csv_payload.encode("utf-8"), "text/csv")}
     )
     assert res_upload.status_code == 200
     data = res_upload.json()
@@ -266,5 +265,3 @@ def test_v2_dataset_upload_complete_isolation_from_mode_1(client, monkeypatch):
     # 5. Verify Mode 1 source schema is UNTOUCHED
     mode1_schema_after = client.get("/api/schemas/source").json()
     assert mode1_schema_after["schema"]["schema_id"] == mode1_schema_before["schema"]["schema_id"]
-
-

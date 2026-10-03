@@ -1,5 +1,7 @@
 import asyncio
+
 from playwright.async_api import async_playwright
+
 
 async def run_strict_mode1_browser_test():
     async with async_playwright() as p:
@@ -24,7 +26,9 @@ async def run_strict_mode1_browser_test():
         print("2. Synthesizing Plan...")
         await page.click("#tab-btn-mapping")
         await page.wait_for_timeout(1000)
-        await page.screenshot(path="/Users/adityapandey/.gemini/antigravity-ide/brain/36e2b5fc-c9c3-452a-890b-4b210f0ecde8/mode1_strict_mapping.png")
+        await page.screenshot(
+            path="/Users/adityapandey/.gemini/antigravity-ide/brain/36e2b5fc-c9c3-452a-890b-4b210f0ecde8/mode1_strict_mapping.png"
+        )
         print("Captured mode1_strict_mapping.png")
 
         # Step 3: Tab 3 (Deterministic Dry-Run Simulation on 1,000 records)
@@ -37,7 +41,9 @@ async def run_strict_mode1_browser_test():
 
         # STRICT ASSERTION: Auto-Apply button must NOT exist or be visible in Mode 1
         auto_apply_btn = await page.query_selector("#btn-auto-fix-all-mode1")
-        assert auto_apply_btn is None or not await auto_apply_btn.is_visible(), "CRITICAL: Auto-apply button must be HIDDEN in Mode 1!"
+        assert auto_apply_btn is None or not await auto_apply_btn.is_visible(), (
+            "CRITICAL: Auto-apply button must be HIDDEN in Mode 1!"
+        )
         print("✓ Verified: Auto-Apply All AI Fixes button is completely HIDDEN in Mode 1.")
 
         # STRICT ASSERTION: Single row Fix & Re-run button must NOT exist in Mode 1
@@ -46,7 +52,9 @@ async def run_strict_mode1_browser_test():
         print("✓ Verified: Zero Fix & Re-run buttons in Mode 1 Quarantine Ledger rows.")
 
         # Screenshot Mode 1 dry-run table (clean forensic view)
-        await page.screenshot(path="/Users/adityapandey/.gemini/antigravity-ide/brain/36e2b5fc-c9c3-452a-890b-4b210f0ecde8/mode1_strict_quarantine_ledger_clean.png")
+        await page.screenshot(
+            path="/Users/adityapandey/.gemini/antigravity-ide/brain/36e2b5fc-c9c3-452a-890b-4b210f0ecde8/mode1_strict_quarantine_ledger_clean.png"
+        )
         print("Captured mode1_strict_quarantine_ledger_clean.png")
 
         # Step 4: Open Forensic Evidence Modal
@@ -63,7 +71,9 @@ async def run_strict_mode1_browser_test():
         assert live_ai_btn is None, "CRITICAL: Live AI Diagnosis button must NOT exist in Mode 1 modal!"
         print("✓ Verified: Mode 1 modal contains pure forensic audit evidence (zero AI fix buttons).")
 
-        await page.screenshot(path="/Users/adityapandey/.gemini/antigravity-ide/brain/36e2b5fc-c9c3-452a-890b-4b210f0ecde8/mode1_strict_modal_clean_forensics.png")
+        await page.screenshot(
+            path="/Users/adityapandey/.gemini/antigravity-ide/brain/36e2b5fc-c9c3-452a-890b-4b210f0ecde8/mode1_strict_modal_clean_forensics.png"
+        )
         print("Captured mode1_strict_modal_clean_forensics.png")
 
         # Close modal
@@ -88,7 +98,9 @@ async def run_strict_mode1_browser_test():
         print(f"✓ Target Store Badge: {target_badge}")
         assert "902" in target_badge, f"Expected 902 in target store, got {target_badge}"
 
-        await page.screenshot(path="/Users/adityapandey/.gemini/antigravity-ide/brain/36e2b5fc-c9c3-452a-890b-4b210f0ecde8/mode1_strict_target_store_902.png")
+        await page.screenshot(
+            path="/Users/adityapandey/.gemini/antigravity-ide/brain/36e2b5fc-c9c3-452a-890b-4b210f0ecde8/mode1_strict_target_store_902.png"
+        )
         print("Captured mode1_strict_target_store_902.png")
 
         # Step 7: Verify Universal Reconciliation (0 unaccounted delta)
@@ -105,11 +117,14 @@ async def run_strict_mode1_browser_test():
         assert "902" in recon_target, f"Expected 902 target, got {recon_target}"
         assert "98" in recon_quar, f"Expected 98 quarantined, got {recon_quar}"
 
-        await page.screenshot(path="/Users/adityapandey/.gemini/antigravity-ide/brain/36e2b5fc-c9c3-452a-890b-4b210f0ecde8/mode1_strict_reconciliation_zero_delta.png")
+        await page.screenshot(
+            path="/Users/adityapandey/.gemini/antigravity-ide/brain/36e2b5fc-c9c3-452a-890b-4b210f0ecde8/mode1_strict_reconciliation_zero_delta.png"
+        )
         print("Captured mode1_strict_reconciliation_zero_delta.png")
 
         await browser.close()
         print("\n🎉 STRICT MODE 1 BROWSER END-TO-END TEST PASSED 100%! 🎉")
+
 
 if __name__ == "__main__":
     asyncio.run(run_strict_mode1_browser_test())

@@ -1,5 +1,7 @@
 import asyncio
+
 from playwright.async_api import async_playwright
+
 
 async def run():
     async with async_playwright() as p:
@@ -29,7 +31,9 @@ async def run():
             await page.wait_for_timeout(1500)
 
         # Screenshot before fixes (showing ~98 quarantined records and AI suggestions)
-        await page.screenshot(path="/Users/adityapandey/.gemini/antigravity-ide/brain/36e2b5fc-c9c3-452a-890b-4b210f0ecde8/quarantine_before_fixes.png")
+        await page.screenshot(
+            path="/Users/adityapandey/.gemini/antigravity-ide/brain/36e2b5fc-c9c3-452a-890b-4b210f0ecde8/quarantine_before_fixes.png"
+        )
         print("Captured quarantine_before_fixes.png")
 
         # Open modal on first row
@@ -48,7 +52,9 @@ async def run():
                 await page.wait_for_selector("#live-ai-diagnosis-result div", timeout=15000)
                 await page.wait_for_timeout(1000)
 
-            await page.screenshot(path="/Users/adityapandey/.gemini/antigravity-ide/brain/36e2b5fc-c9c3-452a-890b-4b210f0ecde8/modal_with_live_ai_diagnosis.png")
+            await page.screenshot(
+                path="/Users/adityapandey/.gemini/antigravity-ide/brain/36e2b5fc-c9c3-452a-890b-4b210f0ecde8/modal_with_live_ai_diagnosis.png"
+            )
             print("Captured modal_with_live_ai_diagnosis.png")
 
             # Click implement fix in modal
@@ -59,7 +65,9 @@ async def run():
                 await page.wait_for_timeout(2500)
 
         # Screenshot after single fix
-        await page.screenshot(path="/Users/adityapandey/.gemini/antigravity-ide/brain/36e2b5fc-c9c3-452a-890b-4b210f0ecde8/quarantine_after_single_fix.png")
+        await page.screenshot(
+            path="/Users/adityapandey/.gemini/antigravity-ide/brain/36e2b5fc-c9c3-452a-890b-4b210f0ecde8/quarantine_after_single_fix.png"
+        )
         print("Captured quarantine_after_single_fix.png")
 
         # Now test Auto-Apply All AI Fixes & Re-run
@@ -70,7 +78,9 @@ async def run():
             await page.wait_for_timeout(3000)
 
         # Screenshot after all fixes
-        await page.screenshot(path="/Users/adityapandey/.gemini/antigravity-ide/brain/36e2b5fc-c9c3-452a-890b-4b210f0ecde8/quarantine_after_all_fixes_zero.png")
+        await page.screenshot(
+            path="/Users/adityapandey/.gemini/antigravity-ide/brain/36e2b5fc-c9c3-452a-890b-4b210f0ecde8/quarantine_after_all_fixes_zero.png"
+        )
         print("Captured quarantine_after_all_fixes_zero.png")
 
         # Check badge text
@@ -80,6 +90,7 @@ async def run():
 
         await browser.close()
         print("Verification completed successfully!")
+
 
 if __name__ == "__main__":
     asyncio.run(run())

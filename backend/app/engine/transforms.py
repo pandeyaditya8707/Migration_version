@@ -1,34 +1,59 @@
 from __future__ import annotations
+
 import re
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
+
 from ..models.schemas import TransformationRuleSpec
 
 # ISO 3166-1 alpha-2 dictionary for common mappings
 COUNTRY_LOOKUP = {
-    "US": "US", "USA": "US", "UNITED STATES": "US", "UNITED STATES OF AMERICA": "US",
-    "UNTIED STATES": "US", "U.S.A.": "US", "U.S.": "US",
-    "CA": "CA", "CAN": "CA", "CANADA": "CA",
-    "GB": "GB", "GBR": "GB", "UK": "GB", "UNITED KINGDOM": "GB", "GREAT BRITAIN": "GB",
-    "IN": "IN", "IND": "IN", "INDIA": "IN",
-    "DE": "DE", "DEU": "DE", "GERMANY": "DE",
-    "FR": "FR", "FRA": "FR", "FRANCE": "FR",
-    "AU": "AU", "AUS": "AU", "AUSTRALIA": "AU",
-    "JP": "JP", "JPN": "JP", "JAPAN": "JP"
+    "US": "US",
+    "USA": "US",
+    "UNITED STATES": "US",
+    "UNITED STATES OF AMERICA": "US",
+    "UNTIED STATES": "US",
+    "U.S.A.": "US",
+    "U.S.": "US",
+    "CA": "CA",
+    "CAN": "CA",
+    "CANADA": "CA",
+    "GB": "GB",
+    "GBR": "GB",
+    "UK": "GB",
+    "UNITED KINGDOM": "GB",
+    "GREAT BRITAIN": "GB",
+    "IN": "IN",
+    "IND": "IN",
+    "INDIA": "IN",
+    "DE": "DE",
+    "DEU": "DE",
+    "GERMANY": "DE",
+    "FR": "FR",
+    "FRA": "FR",
+    "FRANCE": "FR",
+    "AU": "AU",
+    "AUS": "AU",
+    "AUSTRALIA": "AU",
+    "JP": "JP",
+    "JPN": "JP",
+    "JAPAN": "JP",
 }
 
 EMAIL_REGEX = re.compile(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$")
 E164_REGEX = re.compile(r"^\+[1-9]\d{1,14}$")
 
+
 class TransformError(Exception):
     pass
+
 
 class TransformationRegistry:
     """Deterministic, pure transformation functions with zero external side-effects."""
 
     @staticmethod
-    def direct_copy(val: Any, params: Dict[str, Any]) -> Tuple[Any, Optional[str]]:
+    def direct_copy(val: Any, params: dict[str, Any]) -> tuple[Any, str | None]:
         if val is None or val == "":
             default = params.get("default")
             if default is not None:
@@ -39,7 +64,7 @@ class TransformationRegistry:
         return val, None
 
     @staticmethod
-    def trim_clean(val: Any, params: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+    def trim_clean(val: Any, params: dict[str, Any]) -> tuple[str | None, str | None]:
         if val is None:
             if params.get("required", False):
                 return None, "Required field is missing"
@@ -52,7 +77,7 @@ class TransformationRegistry:
         return s if s else None, None
 
     @staticmethod
-    def concat_ws(val: Any, params: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+    def concat_ws(val: Any, params: dict[str, Any]) -> tuple[str | None, str | None]:
         # val can be a list of values from multiple source fields
         values = val if isinstance(val, list) else [val]
         sep = params.get("separator", " ")
@@ -67,7 +92,7 @@ class TransformationRegistry:
         return sep.join(cleaned), None
 
     @staticmethod
-    def split_name(val: Any, params: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+    def split_name(val: Any, params: dict[str, Any]) -> tuple[str | None, str | None]:
         """Splits full name like 'Doe, John' or 'John Doe' into first or last name."""
         fallback = params.get("default") or params.get("fallback")
         if val is None or not str(val).strip():
@@ -76,7 +101,7 @@ class TransformationRegistry:
             if params.get("required", False):
                 return None, "Name is missing or empty"
             return None, None
-        
+
         name_str = str(val).strip()
         part = params.get("part", "first").lower()  # "first" or "last"
 
@@ -112,7 +137,7 @@ class TransformationRegistry:
             return None, f"Invalid split_name part param '{part}'"
 
     @staticmethod
-    def date_to_iso8601(val: Any, params: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+    def date_to_iso8601(val: Any, params: dict[str, Any]) -> tuple[str | None, str | None]:
         """Parses various date formats to ISO-8601 UTC string: YYYY-MM-DDTHH:MM:SSZ."""
         fallback = params.get("fallback") or params.get("default")
         if val is None or not str(val).strip():
@@ -171,10 +196,12 @@ class TransformationRegistry:
         return None, f"Cannot parse '{val_str}' as a valid date. Expected format like YYYY-MM-DD or MM/DD/YYYY"
 
     @staticmethod
-    def phone_to_e164(val: Any, params: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+    def phone_to_e164(val: Any, params: dict[str, Any]) -> tuple[str | None, str | None]:
         """Converts phone strings to E.164 (+1XXXXXXXXXX)."""
         fallback = params.get("fallback") or params.get("default")
-        null_allowed = params.get("on_invalid") == "null" or params.get("allow_null_on_invalid") or params.get("null_on_invalid")
+        null_allowed = (
+            params.get("on_invalid") == "null" or params.get("allow_null_on_invalid") or params.get("null_on_invalid")
+        )
 
         if val is None or not str(val).strip():
             if null_allowed:
@@ -187,7 +214,7 @@ class TransformationRegistry:
 
         raw = str(val).strip()
         default_country_code = params.get("default_country_code", "1")  # US default
-        
+
         # Keep leading + if present, strip other punctuation
         has_plus = raw.startswith("+")
         digits = re.sub(r"\D", "", raw)
@@ -233,10 +260,12 @@ class TransformationRegistry:
         return e164, None
 
     @staticmethod
-    def email_normalize(val: Any, params: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+    def email_normalize(val: Any, params: dict[str, Any]) -> tuple[str | None, str | None]:
         """Lowercases, trims, and validates standard email structure."""
         fallback = params.get("fallback") or params.get("default")
-        null_allowed = params.get("on_invalid") == "null" or params.get("allow_null_on_invalid") or params.get("null_on_invalid")
+        null_allowed = (
+            params.get("on_invalid") == "null" or params.get("allow_null_on_invalid") or params.get("null_on_invalid")
+        )
 
         if val is None or not str(val).strip():
             if fallback:
@@ -258,7 +287,7 @@ class TransformationRegistry:
         return cleaned, None
 
     @staticmethod
-    def clean_currency_to_float(val: Any, params: Dict[str, Any]) -> Tuple[Optional[float], Optional[str]]:
+    def clean_currency_to_float(val: Any, params: dict[str, Any]) -> tuple[float | None, str | None]:
         """Parses currency strings like '$1,249.50', '(50.00)' -> -50.00."""
         if val is None or str(val).strip() == "":
             default = params.get("default", 0.0)
@@ -293,7 +322,7 @@ class TransformationRegistry:
             return None, f"Invalid numeric currency string '{val}'"
 
     @staticmethod
-    def enum_lookup(val: Any, params: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+    def enum_lookup(val: Any, params: dict[str, Any]) -> tuple[str | None, str | None]:
         """Maps legacy codes to modern enum strings."""
         mapping = params.get("mapping", {})
         fallback = params.get("fallback")
@@ -323,7 +352,7 @@ class TransformationRegistry:
         return None, f"Unrecognized enum code '{val}'. Allowed source keys: {list(mapping.keys())}"
 
     @staticmethod
-    def country_to_iso2(val: Any, params: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+    def country_to_iso2(val: Any, params: dict[str, Any]) -> tuple[str | None, str | None]:
         """Standardizes country representations to ISO 3166-1 alpha-2."""
         if val is None or not str(val).strip():
             default = params.get("default", "US")
@@ -348,7 +377,7 @@ class TransformationRegistry:
         return None, f"Unrecognized country '{val}'. Must be valid 2-letter ISO or recognized name."
 
     @staticmethod
-    def coalesce_val(val: Any, params: Dict[str, Any]) -> Tuple[Any, Optional[str]]:
+    def coalesce_val(val: Any, params: dict[str, Any]) -> tuple[Any, str | None]:
         """Fallback to default if value is null or empty."""
         default = params.get("default")
         if val is None or str(val).strip() in ("", "NULL", "none", "nan"):
@@ -356,18 +385,17 @@ class TransformationRegistry:
         return val, None
 
     @staticmethod
-    def uuid_v5_from_key(val: Any, params: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+    def uuid_v5_from_key(val: Any, params: dict[str, Any]) -> tuple[str | None, str | None]:
         """Generates deterministic UUIDv5 from natural key string."""
         if val is None or not str(val).strip():
             if params.get("required", False):
                 return None, "Natural key is missing for UUID generation"
             return str(uuid.uuid4()), None
-        
+
         namespace_str = params.get("namespace", "data-migration.internal")
         ns = uuid.uuid5(uuid.NAMESPACE_DNS, namespace_str)
         generated_uuid = str(uuid.uuid5(ns, str(val).strip()))
         return generated_uuid, None
-
 
 
 # Map transformation rule IDs to callable handlers
@@ -387,7 +415,7 @@ TRANSFORM_HANDLERS = {
 }
 
 # Catalog of available rules for AI agent and UI
-SUPPORTED_RULES: List[TransformationRuleSpec] = [
+SUPPORTED_RULES: list[TransformationRuleSpec] = [
     TransformationRuleSpec(
         rule_id="DIRECT_COPY",
         name="Direct Pass-Through",
@@ -489,11 +517,7 @@ SUPPORTED_RULES: List[TransformationRuleSpec] = [
 ]
 
 
-def apply_transformation(
-    rule_id: str,
-    val: Any,
-    params: Dict[str, Any]
-) -> Tuple[Any, Optional[str]]:
+def apply_transformation(rule_id: str, val: Any, params: dict[str, Any]) -> tuple[Any, str | None]:
     """Applies a transformation rule and returns (result, error_message)."""
     handler = TRANSFORM_HANDLERS.get(rule_id)
     if not handler:
@@ -501,4 +525,4 @@ def apply_transformation(
     try:
         return handler(val, params)
     except Exception as exc:
-        return None, f"Execution failure in transform '{rule_id}': {str(exc)}"
+        return None, f"Execution failure in transform '{rule_id}': {exc!s}"

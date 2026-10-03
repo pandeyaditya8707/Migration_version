@@ -3,7 +3,8 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.142+-009688.svg)](https://fastapi.tiangolo.com)
 [![Pydantic v2](https://img.shields.io/badge/pydantic-v2.13+-e92063.svg)](https://docs.pydantic.dev/)
-[![Tests Passing](https://img.shields.io/badge/tests-45%20passed-brightgreen.svg)]()
+[![Tests Passing](https://img.shields.io/badge/tests-50%20passed-brightgreen.svg)]()
+[![Coverage](https://img.shields.io/badge/coverage-74%25-brightgreen.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 An enterprise-grade, deterministic **Agentic Data Migration Planner and Reconciliation Workbench** built to eliminate silent data loss during schema migrations. 
@@ -34,11 +35,11 @@ The application enables data engineering teams to safely ingest, profile, plan, 
 - **Plan Versioning & Audit Machine**: Formal plan lifecycle (`DRAFT` $\rightarrow$ `PROPOSED` $\rightarrow$ `APPROVED` $\rightarrow$ `EXECUTED` $\rightarrow$ `ROLLED_BACK`) backed by a persistent SQLite ledger.
 - **Deterministic In-Memory Dry Run**: Simulates 100% of transformations with **zero database writes**, partitioning records into valid rows vs. quarantined records.
 - **Granular Quarantine Ledger**: Preserves the row index, natural key, raw payload, and exact rule violation evidence (e.g. `[email]: Invalid RFC email format`) without silently dropping data.
-- **Human Gatekeeper Barrier**: Enforces a strict cryptographic sign-off requirement; execution attempts without prior human approval raise `HTTP 400`.
+- **Human Gatekeeper Barrier**: Enforces a strict cryptographic SHA-256 fingerprint sign-off requirement; post-approval plan tampering invalidates the fingerprint and blocks execution.
 - **ACID Execution & Pre-Run Snapshots**: Executes batch migrations inside a SQLite transaction running in Write-Ahead Logging (WAL) mode with automated point-in-time state snapshots.
 - **Idempotent Retry & Deduplication**: Prevents duplicate insertions across retried or repeated runs by matching natural keys and updating audit metadata.
-- **Mass Conservation Reconciliation**: Mathematically verifies zero data loss using the parity invariant:
-  $$\text{Source Records} = \text{Target Records} + \text{Quarantine Ledger} + \text{Duplicates}$$
+- **Mass Conservation Reconciliation**: Mathematically verifies zero data loss using exact 1-to-1 accounting without double-counting:
+  $$\text{Source Records} = \text{Inserted} + \text{Updated} + \text{Skipped} + \text{Quarantined}$$
 - **1-Click Snapshot Rollback**: Reverts the target database to the exact pre-migration snapshot state in milliseconds.
 - **Universal Data Intake & Downstream Export**: Supports arbitrary user file uploads (`.csv`, `.xlsx`, `.json`) and 1-click exports of clean target records and quarantine ledgers.
 

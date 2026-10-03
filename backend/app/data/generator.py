@@ -1,15 +1,71 @@
 import json
-import random
 import os
+import random
+
 
 def generate_sample_dataset(count: int = 1000, output_path: str = "backend/app/data/sample_records.json"):
     # Fix seed for reproducible, deterministic test runs
     random.seed(42)
 
-    first_names = ["James", "Mary", "Robert", "Patricia", "John", "Jennifer", "Michael", "Linda", "David", "Elizabeth", "William", "Barbara", "Richard", "Susan", "Joseph", "Jessica", "Thomas", "Sarah", "Charles", "Karen"]
-    last_names = ["Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis", "Rodriguez", "Martinez", "Hernandez", "Lopez", "Gonzalez", "Wilson", "Anderson", "Thomas", "Taylor", "Moore", "Jackson", "Martin"]
+    first_names = [
+        "James",
+        "Mary",
+        "Robert",
+        "Patricia",
+        "John",
+        "Jennifer",
+        "Michael",
+        "Linda",
+        "David",
+        "Elizabeth",
+        "William",
+        "Barbara",
+        "Richard",
+        "Susan",
+        "Joseph",
+        "Jessica",
+        "Thomas",
+        "Sarah",
+        "Charles",
+        "Karen",
+    ]
+    last_names = [
+        "Smith",
+        "Johnson",
+        "Williams",
+        "Brown",
+        "Jones",
+        "Garcia",
+        "Miller",
+        "Davis",
+        "Rodriguez",
+        "Martinez",
+        "Hernandez",
+        "Lopez",
+        "Gonzalez",
+        "Wilson",
+        "Anderson",
+        "Thomas",
+        "Taylor",
+        "Moore",
+        "Jackson",
+        "Martin",
+    ]
     domains = ["gmail.com", "yahoo.com", "outlook.com", "enterprise.org", "acme-corp.com", "techbiz.io"]
-    countries = ["USA", "United States", "US", "Canada", "CA", "United Kingdom", "UK", "GB", "Australia", "AU", "Germany", "DE"]
+    countries = [
+        "USA",
+        "United States",
+        "US",
+        "Canada",
+        "CA",
+        "United Kingdom",
+        "UK",
+        "GB",
+        "Australia",
+        "AU",
+        "Germany",
+        "DE",
+    ]
 
     records = []
 
@@ -110,7 +166,7 @@ def generate_sample_dataset(count: int = 1000, output_path: str = "backend/app/d
             "account_status_code": status_cd,
             "balance_due_str": balance_str,
             "risk_flag": risk,
-            "country_code_raw": country
+            "country_code_raw": country,
         }
         records.append(rec)
 
@@ -119,6 +175,7 @@ def generate_sample_dataset(count: int = 1000, output_path: str = "backend/app/d
         json.dump(records, f, indent=2)
 
     print(f"Successfully generated {len(records)} sample records in {output_path}")
+
 
 if __name__ == "__main__":
     generate_sample_dataset()

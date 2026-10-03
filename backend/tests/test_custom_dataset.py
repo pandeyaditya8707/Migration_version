@@ -1,10 +1,12 @@
 import pytest
-from fastapi.testclient import TestClient
 from app.main import app
+from fastapi.testclient import TestClient
+
 
 @pytest.fixture
 def client():
     return TestClient(app)
+
 
 def test_custom_csv_upload_and_migration(client):
     csv_content = """id,name,email,created,status_raw,amount
@@ -52,7 +54,9 @@ def test_custom_csv_upload_and_migration(client):
     assert res_appr.status_code == 200
 
     # 6. Execute custom migration
-    res_exec = client.post(f"/api/plans/{plan_ver}/execute", json={"plan_version": plan_ver, "executed_by": "Custom Engineer"})
+    res_exec = client.post(
+        f"/api/plans/{plan_ver}/execute", json={"plan_version": plan_ver, "executed_by": "Custom Engineer"}
+    )
     assert res_exec.status_code == 200
     assert res_exec.json()["status"] == "SUCCESS"
 

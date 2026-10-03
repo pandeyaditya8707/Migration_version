@@ -1,12 +1,12 @@
 import pytest
-import os
-from app.engine.profiler import InspectionTools
 from app.engine.agent import MigrationPlannerAgent
 from app.engine.dry_run import DryRunEngine
-from app.engine.target_store import TargetDatabaseStore
 from app.engine.executor import ExecutionEngine
-from app.engine.reconciliation import ReconciliationEngine
 from app.engine.history import PlanManager
+from app.engine.profiler import InspectionTools
+from app.engine.reconciliation import ReconciliationEngine
+from app.engine.target_store import TargetDatabaseStore
+
 
 @pytest.fixture
 def test_env(tmp_path):
@@ -25,8 +25,9 @@ def test_env(tmp_path):
         "dry_runner": dry_runner,
         "executor": executor,
         "recon": recon,
-        "plan_mgr": plan_mgr
+        "plan_mgr": plan_mgr,
     }
+
 
 def test_agent_proposes_valid_plan(test_env):
     agent = test_env["agent"]
@@ -40,6 +41,7 @@ def test_agent_proposes_valid_plan(test_env):
     risk_levels = [m.risk_level for m in plan.field_mappings]
     assert "HIGH" in risk_levels
     assert "LOW" in risk_levels
+
 
 def test_deterministic_dry_run(test_env):
     agent = test_env["agent"]
@@ -62,6 +64,7 @@ def test_deterministic_dry_run(test_env):
     assert first_q.errors[0].field != ""
     assert first_q.errors[0].error_message != ""
 
+
 def test_execution_requires_approval(test_env):
     agent = test_env["agent"]
     executor = test_env["executor"]
@@ -70,6 +73,7 @@ def test_execution_requires_approval(test_env):
     assert plan.status == "PROPOSED"
     with pytest.raises(ValueError, match="User approval is mandatory"):
         executor.execute_migration(plan)
+
 
 def test_full_execution_idempotency_and_rollback(test_env):
     agent = test_env["agent"]

@@ -1,47 +1,58 @@
 from __future__ import annotations
+
 import copy
 import hashlib
 import json
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
-from ..models.schemas import MigrationPlan, AuditLogEvent
+from typing import Any
+
+from ..models.schemas import MigrationPlan
 from .target_store import TargetDatabaseStore
 
 logger = logging.getLogger(__name__)
 
+
 def current_utc_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-def compute_plan_fingerprint(plan: MigrationPlan, target_schema: Optional[Dict[str, Any]] = None) -> str:
+
+def compute_plan_fingerprint(plan: MigrationPlan, target_schema: dict[str, Any] | None = None) -> str:
     """Computes a deterministic cryptographic SHA-256 fingerprint binding the plan version,
     its sorted field mappings, and target schema identity."""
     canonical_mappings = []
-    for m in sorted(plan.field_mappings, key=lambda x: (x.target_field, tuple(sorted(getattr(x, "source_fields", []))))):
-        canonical_mappings.append({
-            "target_field": m.target_field,
-            "source_fields": sorted(getattr(m, "source_fields", [])),
-            "transformation": m.transformation,
-            "parameters": getattr(m, "parameters", {}),
-        })
+    for m in sorted(
+        plan.field_mappings, key=lambda x: (x.target_field, tuple(sorted(getattr(x, "source_fields", []))))
+    ):
+        canonical_mappings.append(
+            {
+                "target_field": m.target_field,
+                "source_fields": sorted(getattr(m, "source_fields", [])),
+                "transformation": m.transformation,
+                "parameters": getattr(m, "parameters", {}),
+            }
+        )
     canonical_payload = {
         "plan_id": plan.plan_id,
         "version": plan.version,
         "source_schema_id": plan.source_schema_id,
         "target_schema_id": plan.target_schema_id,
         "mappings": canonical_mappings,
-        "target_schema_hash": hashlib.sha256(json.dumps(target_schema, sort_keys=True).encode("utf-8")).hexdigest() if target_schema else None
+        "target_schema_hash": hashlib.sha256(json.dumps(target_schema, sort_keys=True).encode("utf-8")).hexdigest()
+        if target_schema
+        else None,
     }
     dumped = json.dumps(canonical_payload, sort_keys=True)
     return hashlib.sha256(dumped.encode("utf-8")).hexdigest()
 
+
 class PlanManager:
     """Manages versioned migration plans, SQLite persistence, and approval state transitions."""
 
-    def __init__(self, target_store: Optional[TargetDatabaseStore] = None):
+    def __init__(self, target_store: TargetDatabaseStore | None = None):
         self.store = target_store or TargetDatabaseStore()
-        self._plans: Dict[int, MigrationPlan] = {}
+        self._plans: dict[int, MigrationPlan] = {}
         self._load_from_db()
 
     def _load_from_db(self) -> None:
@@ -70,7 +81,7 @@ class PlanManager:
                 status=plan.status,
                 serialized_plan=json.dumps(plan.model_dump()),
                 created_at=plan.created_at,
-                updated_at=plan.updated_at
+                updated_at=plan.updated_at,
             )
         except Exception as e:
             logger.error(f"Failed to persist plan v{plan.version} to database: {e}", exc_info=True)
@@ -85,12 +96,12 @@ class PlanManager:
                 "plan_id": plan.plan_id,
                 "version": plan.version,
                 "mappings_count": len(plan.field_mappings),
-                "status": plan.status
-            }
+                "status": plan.status,
+            },
         )
         return plan
 
-    def get_plan(self, version: int) -> Optional[MigrationPlan]:
+    def get_plan(self, version: int) -> MigrationPlan | None:
         if version in self._plans:
             return self._plans[version]
 
@@ -102,16 +113,18 @@ class PlanManager:
             return p
         return None
 
-    def list_plans(self) -> List[MigrationPlan]:
+    def list_plans(self) -> list[MigrationPlan]:
         # Refresh from DB to pick up any external changes
         self._load_from_db()
         return sorted(list(self._plans.values()), key=lambda p: p.version)
 
-    def get_latest_plan(self) -> Optional[MigrationPlan]:
+    def get_latest_plan(self) -> MigrationPlan | None:
         plans = self.list_plans()
         return plans[-1] if plans else None
 
-    def approve_plan(self, version: int, approved_by: str = "Lead Data Engineer", target_schema: Optional[Dict[str, Any]] = None) -> MigrationPlan:
+    def approve_plan(
+        self, version: int, approved_by: str = "Lead Data Engineer", target_schema: dict[str, Any] | None = None
+    ) -> MigrationPlan:
         plan = self.get_plan(version)
         if not plan:
             raise ValueError(f"Plan version {version} not found")
@@ -134,12 +147,14 @@ class PlanManager:
                 "plan_id": plan.plan_id,
                 "version": plan.version,
                 "approval_fingerprint": plan.approval_fingerprint,
-                "approved_at": now_iso
-            }
+                "approved_at": now_iso,
+            },
         )
         return plan
 
-    def create_next_version(self, base_version: int, updated_mappings: list, actor: str = "Lead Data Engineer") -> MigrationPlan:
+    def create_next_version(
+        self, base_version: int, updated_mappings: list, actor: str = "Lead Data Engineer"
+    ) -> MigrationPlan:
         base_plan = self.get_plan(base_version)
         if not base_plan:
             raise ValueError(f"Base plan version {base_version} not found")
@@ -161,7 +176,7 @@ class PlanManager:
             approved_by=None,
             approved_at=None,
             created_at=now_iso,
-            updated_at=now_iso
+            updated_at=now_iso,
         )
         return self.save_plan(new_plan, actor=actor)
 
@@ -169,4 +184,3 @@ class PlanManager:
         """Clears cached plans and resets to initial plan."""
         self._plans.clear()
         self.save_plan(initial_plan, actor="System Reset")
-

@@ -1,11 +1,13 @@
 from __future__ import annotations
-import sqlite3
-import os
-import re
+
 import json
 import logging
+import os
+import re
+import sqlite3
+import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -13,21 +15,43 @@ DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "targ
 
 IDENTIFIER_REGEX = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]{0,63}$")
 
+RESERVED_TABLE_NAMES = {
+    "dynamic_schemas",
+    "dynamic_snapshots",
+    "v2_quarantine_ledger",
+    "v2_audit_ledger",
+    "sqlite_master",
+    "sqlite_sequence",
+    "sqlite_stat1",
+    "sqlite_temp_master",
+    "customers",
+    "quarantine_ledger",
+    "target_snapshots",
+    "audit_ledger",
+    "migration_plans",
+}
+
+
 def validate_sql_identifier(name: str, label: str = "identifier") -> str:
-    """Strictly validates SQL table and column identifiers against injection."""
+    """Strictly validates SQL table and column identifiers against injection and reserved system names."""
     clean = str(name).strip()
     if not IDENTIFIER_REGEX.match(clean):
         raise ValueError(
             f"Invalid SQL {label} '{name}'. Identifiers must start with a letter or underscore, "
             f"contain only alphanumeric characters or underscores, and be at most 64 characters."
         )
+    if "table" in label.lower() and (clean.lower() in RESERVED_TABLE_NAMES or clean.lower().startswith("sqlite_")):
+        raise ValueError(
+            f"Security violation: Table name '{clean}' is a reserved internal system/ledger table and cannot be modified."
+        )
     return clean
 
+
 class DynamicDatabaseStore:
-    """Dynamic SQLite storage engine capable of compiling arbitrary target schemas 
+    """Dynamic SQLite storage engine capable of compiling arbitrary target schemas
     into tables with type affinities, constraints, atomic upserts, snapshots, and rollbacks."""
 
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: str | None = None):
         self.db_path = db_path or os.environ.get("DATABASE_PATH") or DB_PATH
         os.makedirs(os.path.dirname(os.path.abspath(self.db_path)), exist_ok=True)
         self._init_metadata_tables()
@@ -105,16 +129,16 @@ class DynamicDatabaseStore:
         else:
             return "TEXT"
 
-    def compile_and_create_table(self, schema_dict: Dict[str, Any]) -> str:
+    def compile_and_create_table(self, schema_dict: dict[str, Any]) -> str:
         """Compiles arbitrary target schema JSON to SQLite DDL and creates/evolves the table safely."""
         raw_table_name = schema_dict.get("table_name", "target_records")
         table_name = validate_sql_identifier(raw_table_name, "table name")
-        
+
         raw_nk = schema_dict.get("natural_key", schema_dict.get("primary_key", "id"))
         raw_pk = schema_dict.get("primary_key", raw_nk)
         natural_key_str = raw_nk[0] if isinstance(raw_nk, list) and raw_nk else str(raw_nk)
         primary_key_str = raw_pk[0] if isinstance(raw_pk, list) and raw_pk else str(raw_pk)
-        
+
         natural_key = validate_sql_identifier(natural_key_str, "natural key")
         primary_key = validate_sql_identifier(primary_key_str, "primary key")
         fields = schema_dict.get("fields", [])
@@ -122,7 +146,7 @@ class DynamicDatabaseStore:
         if not fields:
             raise ValueError(f"Target schema for table '{table_name}' must define at least one field.")
 
-        col_defs: List[str] = []
+        col_defs: list[str] = []
         field_names = set()
 
         for f in fields:
@@ -141,8 +165,9 @@ class DynamicDatabaseStore:
             if constraints.get("unique") and name != primary_key:
                 parts.append("UNIQUE")
 
-            if constraints.get("allowed_values") and isinstance(constraints["allowed_values"], list) and constraints["allowed_values"]:
-                escaped_vals = [f"'{str(v).replace(chr(39), chr(39)+chr(39))}'" for v in constraints["allowed_values"]]
+            enum_vals = constraints.get("allowed_values") or constraints.get("enum")
+            if enum_vals and isinstance(enum_vals, list) and enum_vals:
+                escaped_vals = [f"'{str(v).replace(chr(39), chr(39) + chr(39))}'" for v in enum_vals]
                 allowed_str = ", ".join(escaped_vals)
                 if nullable:
                     parts.append(f'CHECK ("{name}" IS NULL OR "{name}" IN ({allowed_str}))')
@@ -155,7 +180,7 @@ class DynamicDatabaseStore:
         col_defs.append('"migration_run_id" TEXT NOT NULL')
         col_defs.append('"migrated_at" TEXT NOT NULL')
 
-        table_constraints: List[str] = []
+        table_constraints: list[str] = []
         if natural_key not in field_names:
             col_defs.append(f'"{natural_key}" TEXT UNIQUE NOT NULL')
         elif natural_key != primary_key and f'"{natural_key}" TEXT UNIQUE' not in " ".join(col_defs):
@@ -189,19 +214,15 @@ class DynamicDatabaseStore:
                 INSERT OR REPLACE INTO dynamic_schemas (schema_id, table_name, serialized_schema, created_at)
                 VALUES (?, ?, ?, ?)
                 """,
-                (schema_id, table_name, json.dumps(schema_dict), now_iso)
+                (schema_id, table_name, json.dumps(schema_dict), now_iso),
             )
             conn.commit()
 
         return ddl
 
     def execute_upsert_batch(
-        self,
-        table_name: str,
-        natural_key_field: str,
-        rows: List[Dict[str, Any]],
-        run_id: str
-    ) -> Tuple[int, int, int]:
+        self, table_name: str, natural_key_field: str, rows: list[dict[str, Any]], run_id: str
+    ) -> tuple[int, int, int]:
         """Atomically inserts or updates records with idempotency and duplicate prevention.
         Returns: (inserted_count, updated_count, skipped_duplicates)."""
         if not rows:
@@ -226,37 +247,53 @@ class DynamicDatabaseStore:
                 raise RuntimeError(f"Target table '{clean_table_name}' does not exist in SQLite database.")
 
             existing_col_names = {row[1] for row in col_info}
+            ordered_col_names = [row[1] for row in col_info]
+            col_types_map = {row[1]: (row[2] or "TEXT") for row in col_info}
             not_null_cols = {row[1]: (row[2] or "TEXT") for row in col_info if row[3] == 1 and row[4] is None}
 
             # 2. Check if any incoming keys in rows are missing from the table; dynamically ADD COLUMN if needed
             all_incoming_keys = set().union(*(r.keys() for r in rows))
             all_incoming_keys.add("migration_run_id")
             all_incoming_keys.add("migrated_at")
-            for missing_col in (all_incoming_keys - existing_col_names):
+            for missing_col in all_incoming_keys - existing_col_names:
                 try:
                     clean_missing = validate_sql_identifier(missing_col, "column name")
                     conn.execute(f'ALTER TABLE "{clean_table_name}" ADD COLUMN "{clean_missing}" TEXT;')
                     existing_col_names.add(clean_missing)
+                    ordered_col_names.append(clean_missing)
+                    col_types_map[clean_missing] = "TEXT"
                     logger.info(f"Dynamically added missing column '{clean_missing}' to table '{clean_table_name}'.")
                 except Exception as alter_err:
                     logger.warning(f"Could not add column '{missing_col}' to '{clean_table_name}': {alter_err}")
 
-            # 3. Ensure natural_key_field exists in existing_col_names
+            # 3. Ensure natural_key_field exists in existing_col_names deterministically
             pk_cols = [row[1] for row in col_info if row[5] > 0]
             pk_name = pk_cols[0] if pk_cols else None
             if clean_nk not in existing_col_names:
-                clean_nk = pk_name if pk_name else list(existing_col_names)[0]
+                clean_nk = pk_name if pk_name else (ordered_col_names[0] if ordered_col_names else "id")
 
             # 4. Ensure a UNIQUE index exists on natural_key_field for ON CONFLICT
             try:
-                conn.execute(f'CREATE UNIQUE INDEX IF NOT EXISTS "idx_{clean_table_name}_{clean_nk}" ON "{clean_table_name}"("{clean_nk}");')
+                conn.execute(
+                    f'CREATE UNIQUE INDEX IF NOT EXISTS "idx_{clean_table_name}_{clean_nk}" ON "{clean_table_name}"("{clean_nk}");'
+                )
                 conn.commit()
             except Exception as idx_err:
                 logger.debug(f"Unique index creation note on {clean_table_name}.{clean_nk}: {idx_err}")
 
-            # 5. Query existing keys
+            # 5. Query existing keys and pre-fetch existing row snapshots for exact change detection
             existing_rows = conn.execute(f'SELECT "{clean_nk}" FROM "{clean_table_name}"').fetchall()
             existing_keys = {str(r[clean_nk]).strip() for r in existing_rows if r[clean_nk] is not None}
+            existing_row_data = {}
+            if clean_nk:
+                try:
+                    cur_rows = conn.execute(f'SELECT * FROM "{clean_table_name}"').fetchall()
+                    for cr in cur_rows:
+                        nk = str(cr[clean_nk]).strip() if cr[clean_nk] is not None else ""
+                        if nk:
+                            existing_row_data[nk] = dict(cr)
+                except Exception as e:
+                    logger.debug(f"Could not pre-fetch existing rows: {e}")
 
             existing_pks = set()
             if pk_name:
@@ -266,6 +303,7 @@ class DynamicDatabaseStore:
             conn.execute("BEGIN TRANSACTION")
             try:
                 import uuid as _uuid
+
                 seen_batch_pks = set()
 
                 for r in rows:
@@ -273,36 +311,56 @@ class DynamicDatabaseStore:
                     rec["migration_run_id"] = run_id
                     rec["migrated_at"] = now_iso
 
-                    # Supply safe defaults for any NOT NULL columns missing from rec
-                    for col_name, col_type in not_null_cols.items():
-                        is_missing_or_blank = col_name not in rec or rec[col_name] is None or (isinstance(rec[col_name], str) and not rec[col_name].strip())
-                        if is_missing_or_blank:
-                            c_upper = col_type.upper()
-                            if col_name in pk_cols or col_name.endswith("_uuid") or col_name.endswith("_id"):
+                    # Strict NOT NULL validation: NEVER fabricate fake defaults (e.g. 0, 0.0, "")
+                    for col_name, _col_type in not_null_cols.items():
+                        is_missing = col_name not in rec or rec[col_name] is None
+                        if is_missing:
+                            if col_name in pk_cols or col_name.endswith("_uuid"):
                                 rec[col_name] = str(_uuid.uuid4())
-                            elif col_name == clean_nk:
-                                rec[col_name] = f"auto_{run_id}_{_uuid.uuid4().hex[:6]}"
-                            elif "INT" in c_upper:
-                                rec[col_name] = 0
-                            elif "REAL" in c_upper or "FLOAT" in c_upper:
-                                rec[col_name] = 0.0
                             else:
-                                rec[col_name] = ""
+                                raise ValueError(
+                                    f"NOT NULL constraint failed on '{clean_table_name}.{col_name}': "
+                                    f"Cannot fabricate missing required data for natural key '{rec.get(clean_nk)}'."
+                                )
+
+                    # Filter to only columns that actually exist in the table
+                    valid_cols = [c for c in rec if c in existing_col_names]
+                    if not valid_cols:
+                        continue
+
+                    # Strict type enforcement: Coerce/validate numbers before database insertion
+                    for c in valid_cols:
+                        c_type = col_types_map.get(c, "TEXT").upper()
+                        raw_v = rec[c]
+                        if raw_v is not None and not (isinstance(raw_v, (dict, list))):
+                            str_v = str(raw_v).strip()
+                            if ("REAL" in c_type or "FLOAT" in c_type or "NUMERIC" in c_type) and str_v != "":
+                                try:
+                                    rec[c] = float(str_v.replace("$", "").replace(",", ""))
+                                except (ValueError, TypeError):
+                                    raise ValueError(
+                                        f"Data type constraint violation on '{c}': expected {c_type}, "
+                                        f"got invalid value '{raw_v}'"
+                                    )
+                            elif ("INT" in c_type) and str_v != "":
+                                try:
+                                    rec[c] = int(str_v)
+                                except (ValueError, TypeError):
+                                    raise ValueError(
+                                        f"Data type constraint violation on '{c}': expected {c_type}, "
+                                        f"got invalid value '{raw_v}'"
+                                    )
 
                     # Ensure primary key uniqueness across the batch and against existing table records
                     if pk_name and pk_name in rec:
                         cur_pk = str(rec[pk_name]).strip()
                         key_val_check = str(rec.get(clean_nk, "")).strip()
-                        # If duplicate within this batch, or colliding with an existing PK from another natural key
-                        if (cur_pk in seen_batch_pks) or (cur_pk in existing_pks and key_val_check not in existing_keys):
+                        if (cur_pk in seen_batch_pks) or (
+                            cur_pk in existing_pks and key_val_check not in existing_keys
+                        ):
                             rec[pk_name] = str(_uuid.uuid4())
                             cur_pk = rec[pk_name]
                         seen_batch_pks.add(cur_pk)
-
-                    # Filter to only columns that actually exist in the table
-                    valid_cols = [c for c in rec.keys() if c in existing_col_names]
-                    if not valid_cols:
-                        continue
 
                     key_val = str(rec.get(clean_nk, "")).strip()
                     placeholders = ", ".join(["?"] * len(valid_cols))
@@ -326,10 +384,13 @@ class DynamicDatabaseStore:
                         """
 
                     val_list = [rec[c] for c in valid_cols]
-                    if key_val in existing_keys:
+
+                    if key_val and key_val in existing_keys:
                         conn.execute(upsert_sql, val_list)
-                        updated += 1
-                        skipped += 1
+                        if update_cols:
+                            updated += 1
+                        else:
+                            skipped += 1
                     else:
                         conn.execute(upsert_sql, val_list)
                         if key_val:
@@ -347,11 +408,15 @@ class DynamicDatabaseStore:
 
         return inserted, updated, skipped
 
-    def query_dynamic_records(self, table_name: str, limit: int = 50, offset: int = 0) -> Tuple[int, List[Dict[str, Any]]]:
+    def query_dynamic_records(
+        self, table_name: str, limit: int = 50, offset: int = 0
+    ) -> tuple[int, list[dict[str, Any]]]:
         """Queries records from any dynamic table. Returns (total_count, records)."""
         clean_table_name = validate_sql_identifier(table_name, "table name")
         with self.get_connection() as conn:
-            exists = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (clean_table_name,)).fetchone()
+            exists = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (clean_table_name,)
+            ).fetchone()
             if not exists:
                 return 0, []
 
@@ -364,8 +429,8 @@ class DynamicDatabaseStore:
     def create_snapshot(self, table_name: str, run_id: str) -> str:
         """Creates an execution snapshot of the specified table for rollback."""
         clean_table_name = validate_sql_identifier(table_name, "table name")
-        ts = int(datetime.now(timezone.utc).timestamp())
-        snapshot_id = f"snap_{clean_table_name}_{run_id}_{ts}"
+        snap_token = uuid.uuid4().hex[:12]
+        snapshot_id = f"snap_{clean_table_name}_{run_id}_{snap_token}"
         now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         with self.get_connection() as conn:
@@ -376,19 +441,19 @@ class DynamicDatabaseStore:
                 INSERT INTO dynamic_snapshots (snapshot_id, table_name, run_id, created_at, row_count, serialized_rows)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (snapshot_id, clean_table_name, run_id, now_iso, len(row_dicts), json.dumps(row_dicts))
+                (snapshot_id, clean_table_name, run_id, now_iso, len(row_dicts), json.dumps(row_dicts)),
             )
             conn.commit()
         return snapshot_id
 
-    def get_latest_snapshot(self, table_name: Optional[str] = None) -> Optional[str]:
+    def get_latest_snapshot(self, table_name: str | None = None) -> str | None:
         """Returns the most recent snapshot ID for the table (or globally if table_name is None)."""
         with self.get_connection() as conn:
             if table_name:
                 clean_table_name = validate_sql_identifier(table_name, "table name")
                 row = conn.execute(
                     "SELECT snapshot_id FROM dynamic_snapshots WHERE table_name = ? ORDER BY created_at DESC LIMIT 1",
-                    (clean_table_name,)
+                    (clean_table_name,),
                 ).fetchone()
             else:
                 row = conn.execute(
@@ -396,7 +461,7 @@ class DynamicDatabaseStore:
                 ).fetchone()
             return row["snapshot_id"] if row else None
 
-    def rollback_snapshot(self, snapshot_id: str) -> Tuple[bool, int, int]:
+    def rollback_snapshot(self, snapshot_id: str) -> tuple[bool, int, int]:
         """Rolls back the dynamic table to the saved snapshot state.
         Returns: (success: bool, removed_records: int, remaining_records: int)"""
         with self.get_connection() as conn:
@@ -408,7 +473,9 @@ class DynamicDatabaseStore:
             saved_rows = json.loads(snap["serialized_rows"])
 
             # Check if table exists
-            exists = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (clean_table_name,)).fetchone()
+            exists = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (clean_table_name,)
+            ).fetchone()
             if not exists:
                 return False, 0, 0
 
@@ -425,7 +492,7 @@ class DynamicDatabaseStore:
                     for r in saved_rows:
                         conn.execute(
                             f'INSERT INTO "{clean_table_name}" ({col_str}) VALUES ({placeholders})',
-                            [r[c] for c in cols]
+                            [r[c] for c in cols],
                         )
                 conn.commit()
                 removed_count = max(0, existing_count - len(saved_rows))
@@ -435,7 +502,9 @@ class DynamicDatabaseStore:
                 logger.error(f"rollback_snapshot failed for {snapshot_id}: {e}", exc_info=True)
                 raise e
 
-    def save_v2_quarantine_records(self, table_name_or_run_id: str, run_id_or_records: Any, records: Optional[List[Any]] = None) -> None:
+    def save_v2_quarantine_records(
+        self, table_name_or_run_id: str, run_id_or_records: Any, records: list[Any] | None = None
+    ) -> None:
         """Persists Mode 2 quarantined records to SQLite for durability.
         Supports both (table_name, run_id, records) and (run_id, records)."""
         if records is None:
@@ -466,11 +535,23 @@ class DynamicDatabaseStore:
                         source_payload, errors, ai_suggestion, created_at
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (q_id, table_name, run_id, s_idx, str(nat_key) if nat_key else None, json.dumps(payload), json.dumps(err_data), sugg, now_iso)
+                    (
+                        q_id,
+                        table_name,
+                        run_id,
+                        s_idx,
+                        str(nat_key) if nat_key else None,
+                        json.dumps(payload),
+                        json.dumps(err_data),
+                        sugg,
+                        now_iso,
+                    ),
                 )
             conn.commit()
 
-    def load_v2_quarantine_records(self, table_name: Optional[str] = None, run_id: Optional[str] = None, limit: int = 50, offset: int = 0) -> Tuple[int, List[Dict[str, Any]]]:
+    def load_v2_quarantine_records(
+        self, table_name: str | None = None, run_id: str | None = None, limit: int = 50, offset: int = 0
+    ) -> tuple[int, list[dict[str, Any]]]:
         """Loads Mode 2 quarantined records from SQLite."""
         with self.get_connection() as conn:
             where_clauses = []
@@ -510,7 +591,7 @@ class DynamicDatabaseStore:
         actor: str = "System",
         details: Any = None,
         table_name: str = "v2_target",
-        run_id: str = ""
+        run_id: str = "",
     ) -> None:
         """Persists Mode 2 audit events to SQLite."""
         if details is None:
@@ -523,11 +604,11 @@ class DynamicDatabaseStore:
                 INSERT OR REPLACE INTO v2_audit_ledger (event_id, event_type, actor, table_name, run_id, details, timestamp)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (event_id, event_type, actor, table_name, run_id, det_str, now_iso)
+                (event_id, event_type, actor, table_name, run_id, det_str, now_iso),
             )
             conn.commit()
 
-    def load_v2_audit_events(self, limit: int = 50) -> List[Dict[str, Any]]:
+    def load_v2_audit_events(self, limit: int = 50) -> list[dict[str, Any]]:
         """Loads Mode 2 audit events from SQLite."""
         with self.get_connection() as conn:
             rows = conn.execute("SELECT * FROM v2_audit_ledger ORDER BY timestamp DESC LIMIT ?", (limit,)).fetchall()
@@ -552,11 +633,11 @@ class DynamicDatabaseStore:
                 VALUES (?, ?, ?)
                 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at;
                 """,
-                (key, val_str, now_iso)
+                (key, val_str, now_iso),
             )
             conn.commit()
 
-    def load_state(self, key: str) -> Optional[Any]:
+    def load_state(self, key: str) -> Any | None:
         """Loads a persisted value from SQLite."""
         with self.get_connection() as conn:
             row = conn.execute("SELECT value FROM v2_persistent_state WHERE key = ?", (key,)).fetchone()

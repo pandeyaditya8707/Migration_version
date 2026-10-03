@@ -6,34 +6,36 @@ and universal mass conservation against the live running server.
 """
 
 import json
-import urllib.request
 import urllib.error
+import urllib.request
 
 BASE_URL = "http://127.0.0.1:8000"
+
 
 def get(path):
     req = urllib.request.Request(f"{BASE_URL}{path}", headers={"Accept": "application/json"})
     with urllib.request.urlopen(req) as response:
         return response.status, json.loads(response.read().decode())
 
+
 def get_text(path):
     req = urllib.request.Request(f"{BASE_URL}{path}")
     with urllib.request.urlopen(req) as response:
         return response.status, response.read().decode()
 
+
 def post(path, data=None):
     payload = json.dumps(data).encode("utf-8") if data is not None else b"{}"
     req = urllib.request.Request(
-        f"{BASE_URL}{path}",
-        data=payload,
-        headers={"Content-Type": "application/json", "Accept": "application/json"}
+        f"{BASE_URL}{path}", data=payload, headers={"Content-Type": "application/json", "Accept": "application/json"}
     )
     with urllib.request.urlopen(req) as response:
         return response.status, json.loads(response.read().decode())
 
+
 def run_e2e():
     print("🚀 Starting End-to-End Live Verification...")
-    
+
     # 1. Verify Frontend Assets
     print("1. Verifying HTML & JS Assets...")
     status, html = get_text("/")
@@ -84,8 +86,8 @@ def run_e2e():
             {"name": "patient_name", "data_type": "string", "nullable": False},
             {"name": "admission_date", "data_type": "string", "nullable": False},
             {"name": "fee_amount", "data_type": "float", "nullable": False},
-            {"name": "department", "data_type": "string", "nullable": False}
-        ]
+            {"name": "department", "data_type": "string", "nullable": False},
+        ],
     }
     status, ddl_res = post("/api/v2/schema/target", encounters_schema)
     assert status == 200
@@ -108,7 +110,9 @@ def run_e2e():
     assert status == 200
     assert dry_res["total_source_records"] > 0
     assert len(dry_res["sample_transformed"]) > 0
-    print(f"   ✓ Dry Run simulated {dry_res['total_source_records']} records: {dry_res['valid_count']} valid, {dry_res['quarantined_count']} quarantined")
+    print(
+        f"   ✓ Dry Run simulated {dry_res['total_source_records']} records: {dry_res['valid_count']} valid, {dry_res['quarantined_count']} quarantined"
+    )
 
     # 7. Approve Plan
     print("7. Approving Plan with Lead Governance...")
@@ -124,7 +128,9 @@ def run_e2e():
     assert status == 200
     assert exec_res["status"] == "SUCCESS"
     assert (exec_res["inserted_count"] + exec_res["updated_count"]) > 0
-    print(f"   ✓ Migration executed into '{exec_res['target_table_name']}': {exec_res['inserted_count']} inserted, {exec_res['updated_count']} updated in {exec_res['execution_time_ms']}ms")
+    print(
+        f"   ✓ Migration executed into '{exec_res['target_table_name']}': {exec_res['inserted_count']} inserted, {exec_res['updated_count']} updated in {exec_res['execution_time_ms']}ms"
+    )
 
     # 9. Query Live Dynamic Target Records
     print("9. Querying Live Target Store...")
@@ -142,7 +148,9 @@ def run_e2e():
     assert status == 200
     assert recon["is_zero_drop_verified"] is True
     assert recon["unaccounted_delta"] == 0
-    print(f"   ✓ Mass Conservation Verified: Source({recon['source_records']}) = Inserted({recon['inserted_count']}) + Updated({recon['updated_count']}) + Quarantined({recon['quarantined_count']}) + Delta({recon['unaccounted_delta']})")
+    print(
+        f"   ✓ Mass Conservation Verified: Source({recon['source_records']}) = Inserted({recon['inserted_count']}) + Updated({recon['updated_count']}) + Quarantined({recon['quarantined_count']}) + Delta({recon['unaccounted_delta']})"
+    )
 
     # 11. Test Snapshot Rollback
     print("11. Testing Table Snapshot Rollback...")
@@ -152,6 +160,7 @@ def run_e2e():
     print(f"   ✓ Rollback verified: {roll_res['removed_records']} records removed")
 
     print("\n🎉 ALL LIVE END-TO-END VERIFICATIONS PASSED SUCCESSFULLY WITH ZERO REGRESSIONS! 🎉")
+
 
 if __name__ == "__main__":
     run_e2e()

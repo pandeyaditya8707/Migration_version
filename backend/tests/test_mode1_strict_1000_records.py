@@ -1,8 +1,9 @@
-import pytest
 import os
+
+import pytest
+from app.main import app, inspection_tools, target_store
 from fastapi.testclient import TestClient
-from app.main import app, plan_manager, inspection_tools, target_store
-from app.engine.agent import MigrationPlannerAgent
+
 
 @pytest.fixture
 def client():
@@ -11,10 +12,11 @@ def client():
     c.post("/api/reset")
     return c
 
+
 def test_mode1_source_dataset_strictly_1000_records(client):
     """Verify Mode 1 source inspection tool has exactly 1,000 records with full field profiling."""
     assert len(inspection_tools.records) == 1000, f"Expected 1000 source records, got {len(inspection_tools.records)}"
-    
+
     # Verify mandatory fields present in all 1000 records
     expected_fields = {
         "legacy_account_id",
@@ -25,10 +27,11 @@ def test_mode1_source_dataset_strictly_1000_records(client):
         "account_status_code",
         "balance_due_str",
         "risk_flag",
-        "country_code_raw"
+        "country_code_raw",
     }
     for idx, r in enumerate(inspection_tools.records):
         assert expected_fields.issubset(r.keys()), f"Row #{idx} missing expected keys"
+
 
 def test_mode1_plan_proposing_and_invariants(client):
     """Verify Mode 1 benchmark plan contains 11 target fields and active risk invariants."""
@@ -58,6 +61,7 @@ def test_mode1_plan_proposing_and_invariants(client):
     assert "status" in target_fields
     assert "balance_due" in target_fields
 
+
 def test_mode1_unapproved_execution_blocked(client):
     """Strict security invariant: unapproved plan CANNOT execute writes to target database."""
     # Attempt to execute unapproved plan 1
@@ -65,6 +69,7 @@ def test_mode1_unapproved_execution_blocked(client):
     assert exec_res.status_code == 400
     err_msg = exec_res.json()["detail"].lower()
     assert "approve" in err_msg
+
 
 def test_mode1_deterministic_dry_run_1000_records_mass_conservation(client):
     """Verify deterministic dry run across exactly 1,000 records satisfies pure conservation laws."""
@@ -92,6 +97,7 @@ def test_mode1_deterministic_dry_run_1000_records_mass_conservation(client):
         first_err = q["errors"][0]
         assert first_err["field"] != ""
         assert first_err["error_message"] != ""
+
 
 def test_mode1_execution_idempotency_and_reconciliation(client):
     """Strict execution write test: approved plan writes valid records, duplicate run is idempotent, reconciliation delta is 0."""
@@ -155,16 +161,15 @@ def test_mode1_execution_idempotency_and_reconciliation(client):
     assert recon["accounting"]["unaccounted_records"] == 0, f"Unaccounted delta must be 0! Got {recon['accounting']}"
 
     # Rollback test: clean target store restoration
-    rollback_res = client.post("/api/rollback", json={
-        "snapshot_id": snapshot_id,
-        "run_id": run_id,
-        "actor": "Senior Data Architect"
-    })
+    rollback_res = client.post(
+        "/api/rollback", json={"snapshot_id": snapshot_id, "run_id": run_id, "actor": "Senior Data Architect"}
+    )
     assert rollback_res.status_code == 200
     rb_data = rollback_res.json()
     assert rb_data["status"] == "SUCCESS"
     assert rb_data["records_removed"] == 902
     assert target_store.get_customer_count() == 0
+
 
 def test_mode1_no_ai_fix_buttons_or_remediation_in_mode1():
     """Verify Mode 1 UI template and JavaScript strictly hide all AI fix buttons and auto-apply actions."""
@@ -179,7 +184,7 @@ def test_mode1_no_ai_fix_buttons_or_remediation_in_mode1():
 
     # In Mode 1 Quarantine table, AI suggested fix column header is removed
     # Locate tab-dryrun section in Mode 1
-    q_section = html_content[html_content.find('id="tab-dryrun"'):html_content.find('id="tab-execution"')]
+    q_section = html_content[html_content.find('id="tab-dryrun"') : html_content.find('id="tab-execution"')]
     assert "🤖 AI Suggested Fix" not in q_section
     assert "Violated Target Field" in q_section
 
