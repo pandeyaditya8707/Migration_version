@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Agentic Data Migration Planner & Reconciliation Workbench</title>
   <meta name="description" content="Production-grade Agentic Workbench for Planning, Validating, Executing, and Reconciling Bounded Data Migrations with Zero Silent Drop.">
-  <link rel="stylesheet" href="/css/style.css?v=3.3.0">
+  <link rel="stylesheet" href="/css/style.css?v=3.4.0">
 </head>
 <body>
   <div class="app-container">
@@ -57,9 +57,6 @@
         <button id="btn-reset-workbench" class="btn btn-secondary" title="Reset target database and ledger">
           <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
         </button>
-        <a href="/logs" target="_blank" class="btn btn-secondary" title="Open standalone server & AI logs in new tab" style="text-decoration: none;">
-          📜 Live Logs (/logs)
-        </a>
       </div>
 
       <!-- Mode 2 Navigation Actions -->
@@ -87,9 +84,6 @@
         <button id="btn-v2-rollback" class="btn btn-secondary" onclick="rollbackV2Latest()" title="Rollback dynamic table snapshot">
           <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
         </button>
-        <a href="/logs" target="_blank" class="btn btn-secondary" title="Open standalone server & AI logs in new tab" style="text-decoration: none;">
-          📜 Live Logs (/logs)
-        </a>
       </div>
     </header>
 
@@ -115,10 +109,6 @@
         <span>5. Reconciliation & Audit</span>
         <span class="badge-pill" id="badge-recon-status">Parity Check</span>
       </button>
-      <button class="tab-btn" data-tab="tab-logs" id="tab-btn-logs">
-        <span>6. System Logs</span>
-        <span class="badge-pill" id="badge-logs-count">Live</span>
-      </button>
     </nav>
 
     <!-- Mode 2 Navigation Tabs -->
@@ -142,10 +132,6 @@
       <button class="tab-btn" data-tab="v2-tab-reconciliation" onclick="switchV2Tab('v2-tab-reconciliation')">
         <span>5. Universal Reconciliation</span>
         <span class="badge-pill v2-badge">Mass Conservation</span>
-      </button>
-      <button class="tab-btn" data-tab="v2-tab-logs" id="tab-btn-v2-logs" onclick="switchV2Tab('v2-tab-logs')">
-        <span>6. System Logs</span>
-        <span class="badge-pill v2-badge" id="badge-v2-logs-count">Live</span>
       </button>
     </nav>
 
@@ -643,7 +629,7 @@
                 </button>
               </div>
 
-              <textarea id="v2-target-schema-editor" class="code-editor mono" style="height: 250px; font-size: 0.8rem;"></textarea>
+              <textarea id="v2-target-schema-editor" class="code-editor mono" style="min-height: 220px; max-height: 50vh; resize: vertical;"></textarea>
 
               <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 0.4rem; margin-bottom: 0.6rem;">
                 <span id="v2-json-syntax-indicator" class="json-status-pill" style="background: var(--accent-emerald-subtle); color: #065f46; border: 1px solid var(--accent-emerald-border);">
