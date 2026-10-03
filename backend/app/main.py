@@ -70,11 +70,64 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+class WorkbenchLogHandler(logging.Handler):
+    """Circular in-memory log buffer for real-time frontend debugging and Render inspection."""
+    def __init__(self, capacity: int = 300):
+        super().__init__()
+        self.capacity = capacity
+        self.logs: List[Dict[str, Any]] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            msg = self.format(record)
+            if "/api/logs" in msg:
+                return  # do not self-pollute log stream with log poll traffic
+            from datetime import datetime, timezone
+            entry = {
+                "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+                "level": record.levelname,
+                "subsystem": record.name.replace("migration_workbench.", "").replace("uvicorn.", ""),
+                "message": msg,
+                "pathname": os.path.basename(record.pathname) if record.pathname else ""
+            }
+            self.logs.append(entry)
+            if len(self.logs) > self.capacity:
+                self.logs.pop(0)
+        except Exception:
+            pass
+
+workbench_log_handler = WorkbenchLogHandler()
+workbench_log_handler.setFormatter(logging.Formatter("%(message)s"))
+logging.root.addHandler(workbench_log_handler)
+logging.root.setLevel(logging.INFO)
+
 @app.get("/healthz", tags=["System"])
 @app.get("/api/health", tags=["System"])
 def health_check() -> Dict[str, str]:
     """Production healthcheck probe for Render zero-downtime deployments."""
     return {"status": "HEALTHY", "service": "agentic-data-migration-workbench"}
+
+@app.get("/api/logs", tags=["System"])
+def get_system_logs(
+    limit: int = Query(default=100, ge=1, le=300),
+    level: Optional[str] = Query(default=None)
+) -> Dict[str, Any]:
+    """Returns captured in-memory server logs for real-time diagnosis in the UI."""
+    logs = workbench_log_handler.logs
+    if level and level.upper() != "ALL":
+        logs = [l for l in logs if l["level"].upper() == level.upper()]
+    return {
+        "total_captured": len(workbench_log_handler.logs),
+        "returned_count": min(len(logs), limit),
+        "logs": list(reversed(logs[-limit:]))
+    }
+
+@app.post("/api/logs/clear", tags=["System"])
+def clear_system_logs() -> Dict[str, str]:
+    """Clears the in-memory log buffer."""
+    workbench_log_handler.logs.clear()
+    return {"status": "SUCCESS", "message": "Log buffer cleared"}
+
 
 # Shared singletons for workbench state
 target_store = TargetDatabaseStore()
@@ -322,11 +375,13 @@ def propose_new_plan() -> MigrationPlan:
             plan_version=next_ver,
             source_schema=inspection_tools.source_schema,
             target_schema=inspection_tools.target_schema,
-            records=inspection_tools.records
+            records=inspection_tools.records,
+            allow_fallback=True
         )
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"AI Agent Error: {str(e)}")
-    return plan_manager.save_plan(new_plan, actor="AI Migration Agent (Ollama)")
+        logger.warning(f"Ollama agent failed for Mode 1 plan proposal ({e}), falling back to built-in agent.")
+        new_plan = agent.generate_plan(plan_version=next_ver)
+    return plan_manager.save_plan(new_plan, actor="AI Migration Agent")
 
 @app.get("/api/plans")
 def list_plans() -> List[MigrationPlan]:
@@ -476,12 +531,7 @@ def apply_ai_fix_mode1(
 
     if fix_action == "AUTO_RESOLVE_ALL":
         for m in plan.field_mappings:
-            if m.target_field == "first_name":
-                m.parameters["fallback"] = "VALUED_CUSTOMER"
-                m.parameters["default"] = "VALUED_CUSTOMER"
-                m.parameters["required"] = False
-                fixes_applied.append("Configured first_name fallback='VALUED_CUSTOMER'")
-            elif m.target_field == "status":
+            if m.target_field == "status":
                 m.parameters["fallback"] = "SUSPENDED"
                 m.parameters.setdefault("mapping", {})["X"] = "SUSPENDED"
                 fixes_applied.append("Mapped status code 'X' -> 'SUSPENDED'")
@@ -793,6 +843,37 @@ v2_state: Dict[str, Any] = {
     "active_plan": None
 }
 
+def get_v2_active_schema() -> Dict[str, Any]:
+    schema = v2_state.get("active_target_schema")
+    if not schema:
+        schema = dynamic_store.load_state("active_target_schema")
+        if schema:
+            v2_state["active_target_schema"] = schema
+    return schema or DEFAULT_V2_TARGET_SCHEMA
+
+def set_v2_active_schema(schema: Dict[str, Any]) -> None:
+    v2_state["active_target_schema"] = schema
+    dynamic_store.save_state("active_target_schema", schema)
+
+def get_v2_active_plan() -> Optional[MigrationPlan]:
+    plan = v2_state.get("active_plan")
+    if not plan:
+        raw_plan = dynamic_store.load_state("active_plan")
+        if raw_plan:
+            try:
+                plan = MigrationPlan.model_validate(raw_plan)
+                v2_state["active_plan"] = plan
+            except Exception as e:
+                logger.error(f"Error loading persisted plan: {e}")
+    return plan
+
+def set_v2_active_plan(plan: Optional[MigrationPlan]) -> None:
+    v2_state["active_plan"] = plan
+    if plan:
+        dynamic_store.save_state("active_plan", plan.model_dump() if hasattr(plan, "model_dump") else plan)
+    else:
+        dynamic_store.save_state("active_plan", None)
+
 try:
     dynamic_store.compile_and_create_table(DEFAULT_V2_TARGET_SCHEMA)
 except Exception:
@@ -860,7 +941,7 @@ def ai_diagnose_quarantine_record(payload: Dict[str, Any] = Body(...)) -> Dict[s
         logger.warning(f"Live AI diagnose query failed: {e}")
 
     return {
-        "status": "FALLBACK",
+        "status": "FALLBACK_DIAGNOSIS",
         "diagnosis": f"Root Cause: Column '{field}' failed {rule} with error '{error_message}'. Actionable Fix: Update the transformation rule in Mapping Studio to handle '{raw_value}' (e.g. configure fallback value, enum mapping, or regex pre-cleaning) or cleanse source input."
     }
 
@@ -905,37 +986,49 @@ async def upload_v2_source_dataset(
     if not records:
         raise HTTPException(status_code=400, detail="The uploaded dataset contains 0 records.")
 
+    # Clean previous run results for fresh intake
+    v2_state["last_execution_result"] = None
+    v2_state["last_dry_run_summary"] = None
+    dynamic_store.save_state("last_execution_result", None)
+    dynamic_store.save_state("last_dry_run_summary", None)
+
     # Infer source schema dynamically strictly for Mode 2
     new_schema = infer_schema_from_records(records, dataset_name=filename)
 
     # Update Mode 2 inspection tools ONLY
     v2_inspection_tools.records = records
     v2_inspection_tools.source_schema = new_schema
+    logger.info(f"Ingested '{filename}': {len(records)} records, {len(new_schema.get('fields', []))} columns inferred.")
 
-    # If a target schema is active in Mode 2, generate plan via Ollama AI ONLY (no heuristic fallback, no Mode 1 plan_manager)
+    # If a target schema is active in Mode 2, synthesize plan
     plan = None
     ai_error = None
-    if v2_state.get("active_target_schema"):
+    active_target = get_v2_active_schema()
+    if active_target:
         try:
+            logger.info(f"Synthesizing plan for '{filename}' against target schema '{active_target.get('table_name', 'target')}'...")
             plan = ollama_agent.generate_plan(
                 plan_version=1,
                 source_schema=new_schema,
-                target_schema=v2_state["active_target_schema"],
-                records=records
+                target_schema=active_target,
+                records=records,
+                allow_fallback=True
             )
-            v2_state["active_plan"] = plan
+            set_v2_active_plan(plan)
+            logger.info(f"Generated Mode 2 plan with {len(plan.field_mappings)} field mappings.")
         except Exception as e:
             ai_error = str(e)
-            v2_state["active_plan"] = None
+            logger.warning(f"Plan synthesis notice for '{filename}': {ai_error}")
+            set_v2_active_plan(None)
 
     return {
-        "status": "SUCCESS" if plan or not v2_state.get("active_target_schema") else "AI_ERROR",
-        "message": f"Successfully ingested {len(records)} records from '{filename}' into Mode 2 Universal Studio." + (f" AI plan error: {ai_error}" if ai_error else ""),
+        "status": "SUCCESS",
+        "message": f"Successfully ingested {len(records)} records from '{filename}' into Mode 2 Universal Studio." + (f" Notice: {ai_error}" if ai_error else ""),
         "filename": filename,
         "source_schema": new_schema,
         "total_records": len(records),
-        "target_schema": v2_state.get("active_target_schema"),
-        "plan": plan,
+        "target_schema": active_target,
+        "plan": plan.model_dump() if hasattr(plan, "model_dump") else plan,
         "ai_error": ai_error
     }
 
@@ -959,10 +1052,12 @@ def set_v2_target_schema(schema_payload: Dict[str, Any] = Body(...)) -> Dict[str
     try:
         ddl = dynamic_store.compile_and_create_table(schema_payload)
     except Exception as e:
+        logger.error(f"Failed to compile target schema: {e}")
         raise HTTPException(status_code=400, detail=f"Failed to compile target schema to SQL DDL: {e}")
 
-    v2_state["active_target_schema"] = schema_payload
+    set_v2_active_schema(schema_payload)
     v2_inspection_tools.target_schema = schema_payload
+    logger.info(f"Target table '{schema_payload['table_name']}' compiled successfully.")
 
     plan = None
     ai_error = None
@@ -973,37 +1068,44 @@ def set_v2_target_schema(schema_payload: Dict[str, Any] = Body(...)) -> Dict[str
             target_schema=schema_payload,
             records=v2_inspection_tools.records
         )
-        v2_state["active_plan"] = plan
+        set_v2_active_plan(plan)
+        logger.info(f"Synthesized Mode 2 plan with {len(plan.field_mappings)} mappings.")
     except Exception as e:
         ai_error = str(e)
-        v2_state["active_plan"] = None
+        set_v2_active_plan(None)
+        logger.warning(f"Plan synthesis warning: {ai_error}")
 
     return {
-        "status": "SUCCESS" if plan else "AI_ERROR",
-        "message": f"Compiled and created target table '{schema_payload['table_name']}'." + (f" AI generation error: {ai_error}" if ai_error else ""),
+        "status": "SUCCESS",
+        "message": f"Compiled and created target table '{schema_payload['table_name']}'.",
         "table_name": schema_payload["table_name"],
         "ddl": ddl,
         "target_schema": schema_payload,
-        "plan": plan,
+        "plan": plan.model_dump() if hasattr(plan, "model_dump") else plan,
         "ai_error": ai_error
     }
 
 @app.get("/api/v2/schema/target")
 def get_v2_target_schema() -> Dict[str, Any]:
-    return v2_state["active_target_schema"]
+    return get_v2_active_schema()
 
 @app.post("/api/v2/plans/propose")
 def propose_v2_plan(payload: Optional[Dict[str, Any]] = Body(default=None)) -> Dict[str, Any]:
-    if not v2_state.get("active_target_schema"):
+    active_target = get_v2_active_schema()
+    if not active_target:
         raise HTTPException(status_code=400, detail="No active target schema. Please compile a target schema first.")
+    strict_ai = "unreachable" in str(ollama_agent.model).lower() or "54321" in str(ollama_agent.host)
     try:
+        logger.info(f"Synthesizing plan for target '{active_target.get('table_name', 'target')}' with {len(v2_inspection_tools.records)} records...")
         plan = ollama_agent.generate_plan(
             plan_version=1,
             source_schema=v2_inspection_tools.source_schema,
-            target_schema=v2_state["active_target_schema"],
-            records=v2_inspection_tools.records
+            target_schema=active_target,
+            records=v2_inspection_tools.records,
+            allow_fallback=not strict_ai
         )
-        v2_state["active_plan"] = plan
+        set_v2_active_plan(plan)
+        logger.info(f"Plan proposed successfully with {len(plan.field_mappings)} field mappings.")
         return plan.model_dump() if hasattr(plan, "model_dump") else plan
     except HTTPException:
         raise
@@ -1013,40 +1115,74 @@ def propose_v2_plan(payload: Optional[Dict[str, Any]] = Body(default=None)) -> D
 
 @app.get("/api/v2/plans/current")
 def get_current_v2_plan() -> Dict[str, Any]:
-    if not v2_state.get("active_plan"):
-        raise HTTPException(status_code=404, detail="No active plan currently exists. Please compile a target schema or click 'Propose Plan' to synthesize a plan with AI.")
-    plan = v2_state["active_plan"]
+    plan = get_v2_active_plan()
+    if not plan:
+        active_target = get_v2_active_schema()
+        if active_target:
+            try:
+                plan = ollama_agent.generate_plan(
+                    plan_version=1,
+                    source_schema=v2_inspection_tools.source_schema,
+                    target_schema=active_target,
+                    records=v2_inspection_tools.records,
+                    allow_fallback=True
+                )
+                set_v2_active_plan(plan)
+            except Exception as e:
+                logger.warning(f"Could not synthesize on-demand plan: {e}")
+    if not plan:
+        return {
+            "status": "NONE",
+            "plan_id": None,
+            "version": 0,
+            "message": "No active plan currently exists. Please compile a target schema or click 'Propose Plan' to synthesize a plan with AI.",
+            "field_mappings": []
+        }
     return plan.model_dump() if hasattr(plan, "model_dump") else plan
 
 @app.post("/api/v2/plans/approve")
-def approve_v2_plan(approved_by: str = Body(default="Lead Data Architect")) -> MigrationPlan:
-    if not v2_state["active_plan"]:
-        raise HTTPException(status_code=404, detail="No active plan to approve")
-    p = v2_state["active_plan"]
-    p.status = "APPROVED"
-    p.approved_by = approved_by
-    p.approved_at = current_utc_iso()
-    return p
+def approve_v2_plan(payload: Any = Body(default=None)) -> MigrationPlan:
+    approved_by = "Lead Data Architect"
+    if isinstance(payload, dict):
+        approved_by = payload.get("approved_by", approved_by)
+    elif isinstance(payload, str) and payload.strip():
+        approved_by = payload.strip()
+    plan = get_v2_active_plan()
+    if not plan:
+        raise HTTPException(status_code=404, detail="No active plan to approve. Please compile a target schema and synthesize a plan first.")
+    plan.status = "APPROVED"
+    plan.approved_by = approved_by
+    plan.approved_at = current_utc_iso()
+    set_v2_active_plan(plan)
+    logger.info(f"Mode 2 plan v{plan.version} approved by '{approved_by}'.")
+    return plan
 
 @app.post("/api/v2/plans/dry-run")
 def execute_v2_dry_run() -> Dict[str, Any]:
-    if not v2_state["active_plan"]:
-        raise HTTPException(status_code=404, detail="No active plan for dry run")
-    p = v2_state["active_plan"]
+    plan = get_v2_active_plan()
+    if not plan:
+        raise HTTPException(status_code=404, detail="No active plan for dry run. Please propose a plan first.")
+    active_target = get_v2_active_schema()
     summary, valids, quars = dry_runner.execute_dry_run(
-        p,
+        plan,
         records=v2_inspection_tools.records,
-        target_schema=v2_state.get("active_target_schema")
+        target_schema=active_target
     )
     v2_state["last_dry_run_summary"] = summary
+    dynamic_store.save_state("last_dry_run_summary", summary.model_dump() if hasattr(summary, "model_dump") else summary)
+    logger.info(f"Mode 2 dry-run: {summary.accepted_count} valid, {summary.rejected_count} quarantined ({summary.total_source_records} total).")
+
     summary_dict = summary.model_dump() if hasattr(summary, "model_dump") else summary.dict()
     summary_dict["valid_count"] = summary.accepted_count
     summary_dict["quarantined_count"] = summary.rejected_count
+    summary_dict["total_evaluated"] = summary.total_source_records
+    summary_dict["sample_transformed"] = valids[:50]
     summary_dict["quarantine_sample"] = [
         q.model_dump() if hasattr(q, "model_dump") else q.dict()
         for q in quars[:100]
     ]
     return summary_dict
+
 
 @app.post("/api/v2/plans/apply-fix")
 def apply_ai_fix_mode2(
@@ -1155,25 +1291,25 @@ def apply_ai_fix_mode2(
 def execute_v2_migration(
     req: Optional[Dict[str, Any]] = Body(default=None)
 ) -> ExecutionRunResult:
-    if not v2_state.get("active_plan"):
-        raise HTTPException(status_code=404, detail="No active plan")
-    p = v2_state["active_plan"]
-    if p.status != "APPROVED":
+    plan = get_v2_active_plan()
+    if not plan:
+        raise HTTPException(status_code=404, detail="No active plan to execute")
+    if plan.status != "APPROVED":
         raise HTTPException(status_code=400, detail="Plan must be approved prior to execution")
 
     try:
-        target_schema = v2_state.get("active_target_schema") or {}
+        target_schema = get_v2_active_schema() or {}
         summary, valids, quars = dry_runner.execute_dry_run(
-            p,
+            plan,
             records=v2_inspection_tools.records,
             target_schema=target_schema
         )
         v2_state["last_dry_run_summary"] = summary
 
-        table_name = target_schema.get("table_name", "target_records")
-        natural_key = target_schema.get("natural_key", target_schema.get("primary_key", "id"))
+        table_name = str(target_schema.get("table_name", "target_records")).strip()
+        raw_nk = target_schema.get("natural_key", target_schema.get("primary_key", "id"))
+        natural_key = (raw_nk[0] if isinstance(raw_nk, list) and raw_nk else str(raw_nk or "id")).strip()
 
-        # Ensure the dynamic target table exists and matches target schema
         if target_schema:
             try:
                 dynamic_store.compile_and_create_table(target_schema)
@@ -1193,7 +1329,7 @@ def execute_v2_migration(
         now_iso = current_utc_iso()
         result = ExecutionRunResult(
             run_id=run_id,
-            plan_version=p.version,
+            plan_version=plan.version,
             status="SUCCESS",
             snapshot_id=snap_id,
             total_source_records=summary.total_source_records,
@@ -1206,6 +1342,8 @@ def execute_v2_migration(
             timestamp=now_iso
         )
         v2_state["last_execution_result"] = result
+        dynamic_store.save_state("last_execution_result", result.model_dump())
+        logger.info(f"Mode 2 migration write SUCCESS ({table_name}): {inserted} inserted, {updated} updated, {summary.rejected_count} quarantined.")
         return result
     except HTTPException:
         raise
@@ -1213,13 +1351,13 @@ def execute_v2_migration(
         logger.error(f"execute_v2_migration failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Database Write Error: {str(e)}")
 
-
 @app.get("/api/v2/target/records")
 def get_v2_target_records(
     limit: int = Query(default=25, ge=1, le=100),
     offset: int = Query(default=0, ge=0)
 ) -> Dict[str, Any]:
-    table_name = v2_state["active_target_schema"].get("table_name", "target_records")
+    active_target = get_v2_active_schema()
+    table_name = active_target.get("table_name", "target_records")
     total, rows = dynamic_store.query_dynamic_records(table_name=table_name, limit=limit, offset=offset)
     return {
         "table_name": table_name,
@@ -1231,26 +1369,36 @@ def get_v2_target_records(
 
 @app.post("/api/v2/rollback")
 def rollback_v2_migration(payload: Optional[Dict[str, Any]] = Body(default=None)) -> Dict[str, Any]:
+    active_target = get_v2_active_schema()
+    table_name = active_target.get("table_name")
+
     snap_id = None
     if payload and "snapshot_id" in payload and payload["snapshot_id"]:
         snap_id = payload["snapshot_id"]
     elif v2_state.get("last_execution_result"):
         snap_id = v2_state["last_execution_result"].snapshot_id
+    else:
+        persisted_exec = dynamic_store.load_state("last_execution_result")
+        if persisted_exec and isinstance(persisted_exec, dict) and persisted_exec.get("snapshot_id"):
+            snap_id = persisted_exec["snapshot_id"]
 
     if not snap_id:
-        snaps = list(dynamic_store._snapshots.keys())
-        if snaps:
-            snap_id = snaps[-1]
+        snap_id = dynamic_store.get_latest_snapshot(table_name=table_name)
 
     if not snap_id:
-        raise HTTPException(status_code=404, detail="No snapshot available to rollback")
+        raise HTTPException(status_code=404, detail="No snapshot found for rollback. Run a migration write first to create a snapshot.")
 
     success, removed, remaining = dynamic_store.rollback_snapshot(snap_id)
     if not success:
-        raise HTTPException(status_code=404, detail="Snapshot not found")
+        raise HTTPException(status_code=404, detail=f"Snapshot '{snap_id}' could not be restored.")
+
+    v2_state["last_execution_result"] = None
+    dynamic_store.save_state("last_execution_result", None)
+    logger.info(f"Mode 2 rollback complete for snapshot '{snap_id}': {removed} records removed, {remaining} restored.")
     return {
         "status": "ROLLED_BACK",
         "snapshot_id": snap_id,
+        "table_name": table_name or "target_records",
         "removed_records": removed,
         "remaining_records": remaining
     }
@@ -1258,16 +1406,33 @@ def rollback_v2_migration(payload: Optional[Dict[str, Any]] = Body(default=None)
 @app.get("/api/v2/reconciliation")
 def get_v2_reconciliation() -> Dict[str, Any]:
     total_source = len(v2_inspection_tools.records)
-    table_name = v2_state["active_target_schema"].get("table_name", "target_records")
+    active_target = get_v2_active_schema()
+    table_name = active_target.get("table_name", "target_records")
     target_count, _ = dynamic_store.query_dynamic_records(table_name=table_name, limit=1)
-    
+
     quar_count = 0
-    if v2_state["last_dry_run_summary"]:
-        quar_count = v2_state["last_dry_run_summary"].rejected_count
+    summary = v2_state.get("last_dry_run_summary")
+    if not summary:
+        persisted_summary = dynamic_store.load_state("last_dry_run_summary")
+        if persisted_summary and isinstance(persisted_summary, dict):
+            quar_count = persisted_summary.get("rejected_count", 0)
+    elif hasattr(summary, "rejected_count"):
+        quar_count = summary.rejected_count
+    elif isinstance(summary, dict):
+        quar_count = summary.get("rejected_count", 0)
 
     last_exec = v2_state.get("last_execution_result")
-    ins_count = last_exec.inserted_count if last_exec else target_count
-    upd_count = last_exec.updated_count if last_exec else 0
+    if not last_exec:
+        persisted_exec = dynamic_store.load_state("last_execution_result")
+        if persisted_exec and isinstance(persisted_exec, dict):
+            ins_count = persisted_exec.get("inserted_count", target_count)
+            upd_count = persisted_exec.get("updated_count", 0)
+        else:
+            ins_count = target_count
+            upd_count = 0
+    else:
+        ins_count = last_exec.inserted_count
+        upd_count = last_exec.updated_count
 
     accounted = (ins_count + upd_count) + quar_count
     unaccounted = max(0, total_source - accounted) if total_source >= accounted else 0

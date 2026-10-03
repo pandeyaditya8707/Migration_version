@@ -165,6 +165,9 @@ window.switchV2Tab = function(tabId) {
   document.querySelectorAll('#tab-container-v2 .view-panel').forEach(panel => {
     panel.classList.toggle('active', panel.id === tabId);
   });
+  if (tabId === 'v2-tab-logs' && window.fetchSystemLogs) {
+    window.fetchSystemLogs('mode2');
+  }
 };
 
 async function initV2Workbench() {
@@ -233,8 +236,14 @@ window.uploadV2Dataset = async function(file) {
       method: 'POST',
       body: formData
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Upload failed');
+    const text = await res.text();
+    let data;
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch (parseErr) {
+      throw new Error(`Server returned non-JSON response (HTTP ${res.status}): ${text ? text.slice(0, 150) : 'Empty response'}`);
+    }
+    if (!res.ok) throw new Error(data.detail || data.message || `Upload failed (HTTP ${res.status})`);
 
     if (fillElem) fillElem.style.width = '100%';
     if (pctElem) pctElem.textContent = '100%';
@@ -245,7 +254,7 @@ window.uploadV2Dataset = async function(file) {
     const srcRecs = document.getElementById('v2-source-records-count');
     const srcFields = document.getElementById('v2-source-fields-count');
     if (srcName) srcName.textContent = data.filename || file.name;
-    if (srcRecs) srcRecs.textContent = `${data.total_records.toLocaleString()} records`;
+    if (srcRecs) srcRecs.textContent = `${(data.total_records || 0).toLocaleString()} records`;
     if (srcFields && data.source_schema) {
       srcFields.textContent = `${data.source_schema.fields?.length || 0} fields (${(data.source_schema.fields || []).map(f => f.name).slice(0, 4).join(', ')}...)`;
     }
@@ -253,12 +262,13 @@ window.uploadV2Dataset = async function(file) {
     if (data.plan) {
       v2State.currentPlan = data.plan;
       renderV2Plan(data.plan);
-      showToast(`Mode 2: Ingested '${file.name}' (${data.total_records} rows). AI proposed plan.`, 'success');
+      showToast(`Mode 2: Ingested '${file.name}' (${data.total_records} rows). Plan synthesized.`, 'success');
       switchV2Tab('v2-tab-mapping');
     } else if (data.ai_error) {
-      showToast(`Mode 2: Ingested '${file.name}', but AI plan error: ${data.ai_error}`, 'error');
+      showToast(`Mode 2: Ingested '${file.name}' (${data.total_records} rows). Note: ${data.ai_error}`, 'info');
+      switchV2Tab('v2-tab-mapping');
     } else {
-      showToast(`Mode 2: Ingested '${file.name}' (${data.total_records} rows). Ready for target compilation.`, 'success');
+      showToast(`Mode 2: Ingested '${file.name}' (${data.total_records} rows). Ready for target schema compilation.`, 'success');
     }
 
     setTimeout(() => {
@@ -508,13 +518,17 @@ async function fetchV2CurrentPlan() {
       if (plan && plan.plan_id) {
         v2State.currentPlan = plan;
         renderV2Plan(plan);
+      } else {
+        v2State.currentPlan = null;
+        renderV2NoPlan();
       }
-    } else if (res.status === 404) {
+    } else {
       v2State.currentPlan = null;
       renderV2NoPlan();
     }
   } catch (err) {
-    console.warn('Notice: No current V2 plan loaded:', err);
+    v2State.currentPlan = null;
+    renderV2NoPlan();
   }
 }
 

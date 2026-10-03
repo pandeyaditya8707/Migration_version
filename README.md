@@ -50,7 +50,7 @@ The application enables data engineering teams to safely ingest, profile, plan, 
 graph TD
     UI["Frontend Workbench UI<br>(Vanilla CSS + ES6 JS)"] -->|REST API| API["FastAPI Application Layer<br>(backend/app/main.py)"]
     
-    subgraph Core Engines
+    subgraph core_engines ["Core Engines"]
         API --> PROF["Profiler & Dynamic Schema Inferer<br>(profiler.py)"]
         API --> AGENT["AI Migration Planner Agent<br>(agent.py)"]
         API --> PLAN_MGR["Plan Versioning Manager<br>(history.py)"]
@@ -59,11 +59,11 @@ graph TD
         API --> RECON["Reconciliation Auditor<br>(reconciliation.py)"]
     end
 
-    subgraph Deterministic Transform Registry
+    subgraph transform_registry ["Deterministic Transform Registry"]
         AGENT & DRY & EXEC --> REG["Pure Deterministic Transforms<br>(transforms.py)<br>(No eval / No exec)"]
     end
 
-    subgraph Mock Target Store (SQLite WAL Mode)
+    subgraph mock_target_store ["Mock Target Store (SQLite WAL Mode)"]
         EXEC & RECON --> DB[("target_store.db")]
         DB --> T1["customers (Target Table)"]
         DB --> T2["quarantine_ledger (Error Evidence)"]
