@@ -1,0 +1,46 @@
+{
+  "schema_id": "warehouse_inventory_v1",
+  "table_name": "inventory",
+  "primary_key": "item_uuid",
+  "natural_key": "sku_code",
+  "fields": [
+    {
+      "name": "item_uuid",
+      "data_type": "string",
+      "nullable": false,
+      "constraints": {
+        "unique": true,
+        "description": "Deterministic primary key"
+      }
+    },
+    {
+      "name": "sku_code",
+      "data_type": "string",
+      "nullable": false,
+      "constraints": {
+        "unique": true,
+        "description": "SKU code natural identifier"
+      }
+    },
+    {
+      "name": "item_name",
+      "data_type": "string",
+      "nullable": false
+    },
+    {
+      "name": "stock_quantity",
+      "data_type": "int",
+      "nullable": false
+    },
+    {
+      "name": "unit_price",
+      "data_type": "float",
+      "nullable": false
+    },
+    {
+      "name": "category",
+      "data_type": "string",
+      "nullable": false
+    }
+  ]
+}

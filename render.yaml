@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: agentic-data-migration-workbench
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn backend.app.main:app -w 2 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT"
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: OLLAMA_HOST
+        value: https://ollama.com/api
+      - key: OLLAMA_MODEL
+        value: gpt-oss:20b
+      - key: OLLAMA_API_KEY
+        sync: false

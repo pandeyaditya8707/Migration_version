@@ -1,0 +1,56 @@
+{
+  "schema_id": "medical_encounters_v1",
+  "table_name": "encounters",
+  "primary_key": "encounter_uuid",
+  "natural_key": "encounter_id",
+  "fields": [
+    {
+      "name": "encounter_uuid",
+      "data_type": "string",
+      "nullable": false,
+      "constraints": {
+        "unique": true,
+        "description": "Deterministic UUIDv5 primary key generated from encounter_id"
+      }
+    },
+    {
+      "name": "encounter_id",
+      "data_type": "string",
+      "nullable": false,
+      "constraints": {
+        "unique": true,
+        "description": "Natural key for deduplication and idempotent retries"
+      }
+    },
+    {
+      "name": "patient_mrn",
+      "data_type": "string",
+      "nullable": false
+    },
+    {
+      "name": "patient_first_name",
+      "data_type": "string",
+      "nullable": false
+    },
+    {
+      "name": "patient_last_name",
+      "data_type": "string",
+      "nullable": false
+    },
+    {
+      "name": "service_date",
+      "data_type": "string",
+      "nullable": false
+    },
+    {
+      "name": "department_name",
+      "data_type": "string",
+      "nullable": false
+    },
+    {
+      "name": "billed_amount",
+      "data_type": "float",
+      "nullable": false
+    }
+  ]
+}

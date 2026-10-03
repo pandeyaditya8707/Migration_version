@@ -23,6 +23,24 @@ const state = {
   auditTrail: []
 };
 
+/**
+ * Production button loader helper that swaps button content with a spinner,
+ * disables it to prevent duplicate clicks/races, and restores state when finished.
+ */
+window.withButtonLoader = async function(btn, loadingText, asyncCallback) {
+  if (!btn) return await asyncCallback();
+  const originalHtml = btn.innerHTML;
+  const originalDisabled = btn.disabled;
+  btn.disabled = true;
+  btn.innerHTML = `<span class="btn-spinner"></span> <span>${loadingText}</span>`;
+  try {
+    return await asyncCallback();
+  } finally {
+    btn.innerHTML = originalHtml;
+    btn.disabled = originalDisabled;
+  }
+};
+
 // ============================================================================
 // Initialization & Data Loading
 // ============================================================================
@@ -140,7 +158,7 @@ async function fetchAuditTrail() {
 // ============================================================================
 
 function setupTabNavigation() {
-  const tabBtns = document.querySelectorAll('.tab-btn');
+  const tabBtns = document.querySelectorAll('#tabs-bar-v1 .tab-btn');
   tabBtns.forEach(btn => {
     btn.addEventListener('click', () => {
       const targetTabId = btn.getAttribute('data-tab');
@@ -151,10 +169,10 @@ function setupTabNavigation() {
 
 function switchTab(tabId) {
   state.activeTab = tabId;
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-  document.querySelectorAll('.view-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('#tabs-bar-v1 .tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('#tab-container-v1 .view-panel').forEach(p => p.classList.remove('active'));
 
-  const activeBtn = document.querySelector(`.tab-btn[data-tab="${tabId}"]`);
+  const activeBtn = document.querySelector(`#tabs-bar-v1 .tab-btn[data-tab="${tabId}"]`);
   const activePanel = document.getElementById(tabId);
   if (activeBtn) activeBtn.classList.add('active');
   if (activePanel) activePanel.classList.add('active');
@@ -383,49 +401,84 @@ function renderMappingStudio() {
     </div>
   `).join('');
 
-  // Render Field Mapping Matrix
+  // Render Field Mapping Matrix as Structured High-Precision Data Table
   const matrixContainer = document.getElementById('mapping-studio-list');
-  matrixContainer.innerHTML = p.field_mappings.map(m => {
-    const riskClass = m.risk_level === 'HIGH' ? 'risk-high' : m.risk_level === 'MEDIUM' ? 'risk-medium' : 'risk-low';
-    const srcList = m.source_fields.join(', ') || '(Synthetic / Generated)';
-    
-    return `
-      <div class="mapping-row">
-        <div class="source-slot">
-          <span class="slot-name mono" style="color: var(--accent-cyan);">${srcList}</span>
-          <span class="slot-type">Source Field</span>
-        </div>
+  if (matrixContainer) {
+    matrixContainer.className = "table-wrapper";
 
-        <div class="connector-arrow">
-          ${p.status !== 'APPROVED' && state.supportedTransforms.length > 0 ? `
-            <select class="btn btn-secondary mono" style="padding: 0.25rem 0.5rem; font-size: 0.74rem; background: #0e1424; border-color: var(--accent-indigo);" 
-                    onchange="handleUpdateMappingRule('${m.target_field}', this.value)">
-              ${state.supportedTransforms.map(t => `
-                <option value="${t.rule_id}" ${t.rule_id === m.transformation ? 'selected' : ''}>
-                  ${t.rule_id}
-                </option>
-              `).join('')}
-            </select>
-          ` : `
-            <span class="transform-pill">${m.transformation}</span>
-          `}
-          ➔
-        </div>
+    const rowsHtml = p.field_mappings.map(m => {
+      const riskClass = m.risk_level === 'HIGH' ? 'risk-high' : (m.risk_level === 'MEDIUM' ? 'risk-medium' : 'risk-low');
+      const srcList = (m.source_fields && m.source_fields.length > 0)
+        ? m.source_fields.join(', ')
+        : (m.source_field || '(Synthetic / Generated)');
 
-        <div class="source-slot">
-          <div style="display: flex; align-items: center; gap: 0.5rem;">
-            <span class="slot-name mono" style="color: var(--accent-emerald);">${m.target_field}</span>
-            <span class="risk-tag ${riskClass}">${m.risk_level} RISK</span>
-          </div>
-          <span class="slot-type" style="color: var(--text-secondary); margin-top: 0.2rem;">${escapeHtml(m.risk_rationale || '')}</span>
-        </div>
+      return `
+        <tr>
+          <td>
+            <div style="display: flex; flex-direction: column; gap: 0.15rem;">
+              <span class="mono" style="font-weight: 700; color: var(--ink-primary); font-size: 0.84rem;">${escapeHtml(m.target_field)}</span>
+              <span style="font-size: 0.68rem; color: var(--ink-muted); text-transform: uppercase; letter-spacing: 0.04em;">Target Field</span>
+            </div>
+          </td>
 
-        <div style="text-align: right;">
-          <span class="badge-pill" style="font-size: 0.72rem;">${m.notes || 'Mapped'}</span>
-        </div>
-      </div>
+          <td>
+            <div style="display: flex; flex-direction: column; gap: 0.15rem;">
+              <span class="mono" style="font-weight: 600; color: #334155; font-size: 0.8rem; background: var(--bg-subtle); padding: 0.2rem 0.5rem; border-radius: 4px; border: 1px solid var(--border-hairline); display: inline-block; width: fit-content;">${escapeHtml(srcList)}</span>
+              <span style="font-size: 0.68rem; color: var(--ink-muted);">Source Inbound</span>
+            </div>
+          </td>
+
+          <td>
+            <div style="display: flex; align-items: center; gap: 0.45rem;">
+              ${p.status !== 'APPROVED' && state.supportedTransforms.length > 0 ? `
+                <select class="btn btn-secondary mono" style="padding: 0.3rem 0.6rem; font-size: 0.76rem; background: var(--bg-surface); border: 1px solid var(--border-hairline); color: var(--ink-primary); min-width: 175px;" 
+                        onchange="handleUpdateMappingRule('${m.target_field}', this.value)">
+                  ${state.supportedTransforms.map(t => `
+                    <option value="${t.rule_id}" ${t.rule_id === m.transformation ? 'selected' : ''}>
+                      ${t.rule_id}
+                    </option>
+                  `).join('')}
+                </select>
+              ` : `
+                <span class="transform-pill">${escapeHtml(m.transformation)}</span>
+              `}
+              <span style="color: var(--ink-muted); font-size: 0.85rem;" title="Transforms into target">➔</span>
+            </div>
+          </td>
+
+          <td>
+            <span class="badge-risk ${riskClass}">${m.risk_level} RISK</span>
+          </td>
+
+          <td style="white-space: normal; min-width: 250px; max-width: 380px; line-height: 1.45; font-size: 0.78rem; color: #475569;">
+            ${escapeHtml(m.risk_rationale || 'Deterministic mapping invariant')}
+          </td>
+
+          <td style="white-space: normal; min-width: 180px; text-align: right;">
+            <span class="badge-pill" style="font-size: 0.72rem; background: var(--bg-subtle); border: 1px solid var(--border-hairline); color: var(--ink-secondary); display: inline-block; text-align: left;">${escapeHtml(m.notes || 'Deterministic')}</span>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    matrixContainer.innerHTML = `
+      <table class="data-table mapping-matrix-table" style="width: 100%;">
+        <thead>
+          <tr>
+            <th style="min-width: 160px;">Target Field</th>
+            <th style="min-width: 160px;">Source Field(s)</th>
+            <th style="min-width: 220px;">Transformation Rule</th>
+            <th style="min-width: 110px;">Risk Level</th>
+            <th style="min-width: 250px;">Agent Invariant & Rationale</th>
+            <th style="min-width: 180px; text-align: right;">Policy / Lineage Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowsHtml}
+        </tbody>
+      </table>
     `;
-  }).join('');
+  }
 }
 
 window.handleUpdateMappingRule = async function(targetField, newTransform) {
@@ -486,19 +539,21 @@ function renderDryRunResults(summary) {
   }
 
   tbody.innerHTML = samples.map(q => {
-    const err = q.errors[0] || {};
+    const err = (q.errors && q.errors.length > 0) ? q.errors[0] : {};
+    const qStr = JSON.stringify(q).replace(/'/g, '&#39;');
+
     return `
       <tr>
-        <td class="mono">#${q.source_row_index + 1}</td>
+        <td class="mono font-semibold">#${q.source_row_index + 1}</td>
         <td class="mono font-semibold" style="color: var(--accent-cyan);">${escapeHtml(q.source_natural_key || 'UNKNOWN')}</td>
-        <td class="mono" style="color: #fda4af;">${escapeHtml(err.field || '')}</td>
-        <td><span class="badge-pill">${escapeHtml(err.rule || '')}</span></td>
-        <td style="color: #fda4af; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+        <td class="mono" style="color: #f43f5e; font-weight: 600;">${escapeHtml(err.field || '')}</td>
+        <td><span class="badge-pill" style="font-size: 0.72rem; background: rgba(244, 63, 94, 0.08); color: #f43f5e; border-color: rgba(244, 63, 94, 0.25);">${escapeHtml(err.rule || '')}</span></td>
+        <td style="color: #f43f5e; max-width: 380px; font-size: 0.78rem; line-height: 1.4; white-space: normal;">
           ${escapeHtml(err.error_message || '')}
         </td>
-        <td>
-          <button class="btn btn-secondary" style="padding: 0.25rem 0.6rem; font-size: 0.74rem;" onclick='openQuarantineModal(${JSON.stringify(q)})'>
-            Inspect Evidence
+        <td style="text-align: right; white-space: nowrap;">
+          <button class="btn btn-secondary" style="padding: 0.25rem 0.65rem; font-size: 0.74rem;" onclick='openQuarantineModal(${qStr}, "mode1")'>
+            View Evidence
           </button>
         </td>
       </tr>
@@ -523,15 +578,15 @@ function renderTargetStoreView() {
     const statusClass = r.status === 'ACTIVE' ? 'active' : r.status === 'SUSPENDED' ? 'suspended' : 'inactive';
     return `
       <tr>
-        <td class="mono" style="font-size: 0.72rem; color: var(--text-muted);">${r.customer_uuid.slice(0, 8)}...</td>
-        <td class="mono font-semibold" style="color: var(--accent-cyan);">${r.natural_key}</td>
-        <td style="font-weight: 600;">${escapeHtml(r.first_name)}</td>
+        <td class="mono" style="font-size: 0.72rem; color: var(--ink-muted);">${r.customer_uuid.slice(0, 8)}...</td>
+        <td class="mono font-semibold" style="color: var(--ink-primary);">${r.natural_key}</td>
+        <td style="font-weight: 600; color: var(--ink-primary);">${escapeHtml(r.first_name)}</td>
         <td>${escapeHtml(r.last_name || '')}</td>
         <td class="mono" style="font-size: 0.75rem;">${escapeHtml(r.email)}</td>
         <td class="mono" style="font-size: 0.75rem;">${escapeHtml(r.phone_e164 || '-')}</td>
         <td class="mono" style="font-size: 0.72rem;">${r.joined_at.split('T')[0]}</td>
         <td><span class="pill-status ${statusClass}">${r.status}</span></td>
-        <td class="mono font-semibold" style="color: ${r.balance_due < 0 ? 'var(--accent-rose)' : '#fff'};">$${r.balance_due.toFixed(2)}</td>
+        <td class="mono font-semibold" style="color: ${r.balance_due < 0 ? 'var(--accent-rose)' : 'var(--ink-primary)'};">$${r.balance_due.toFixed(2)}</td>
         <td><span class="badge-pill">${r.risk_tier}</span></td>
         <td><span class="badge-pill">${r.country_iso2}</span></td>
       </tr>
@@ -609,54 +664,69 @@ function renderAuditTrailView() {
 // Actions & API Triggers
 // ============================================================================
 
+// ============================================================================
+// Actions & API Triggers with Embedded Loaders
+// ============================================================================
+
 async function handleProposePlan() {
-  try {
-    showToast('AI Agent inspecting schemas and synthesizing new plan...', 'info');
-    const res = await fetch(`${API_BASE}/plans/propose`, { method: 'POST' });
-    const newPlan = await res.json();
-    state.plans.push(newPlan);
-    state.currentPlan = newPlan;
-    updatePlanHeaderBadge();
-    renderMappingStudio();
-    switchTab('tab-mapping');
-    showToast(`AI Proposed Plan v${newPlan.version} successfully!`, 'success');
-  } catch (err) {
-    showToast('Failed to propose plan: ' + err.message, 'error');
-  }
+  const btn = document.getElementById('btn-propose-new-plan');
+  await withButtonLoader(btn, 'Synthesizing Plan...', async () => {
+    try {
+      showToast('AI Agent inspecting schemas and synthesizing new plan...', 'info');
+      const res = await fetch(`${API_BASE}/plans/propose`, { method: 'POST' });
+      const newPlan = await res.json();
+      state.plans.push(newPlan);
+      state.currentPlan = newPlan;
+      updatePlanHeaderBadge();
+      renderMappingStudio();
+      switchTab('tab-mapping');
+      showToast(`AI Proposed Plan v${newPlan.version} successfully!`, 'success');
+    } catch (err) {
+      showToast('Failed to propose plan: ' + err.message, 'error');
+    }
+  });
 }
 
 async function handleApprovePlan() {
   if (!state.currentPlan) return;
-  try {
-    const res = await fetch(`${API_BASE}/plans/${state.currentPlan.version}/approve`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify('Lead Data Engineer')
-    });
-    const updated = await res.json();
-    state.currentPlan = updated;
-    const idx = state.plans.findIndex(p => p.version === updated.version);
-    if (idx !== -1) state.plans[idx] = updated;
+  const btn = document.getElementById('btn-approve-plan-top');
+  await withButtonLoader(btn, 'Approving Plan...', async () => {
+    try {
+      const res = await fetch(`${API_BASE}/plans/${state.currentPlan.version}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify('Lead Data Engineer')
+      });
+      const updated = await res.json();
+      state.currentPlan = updated;
+      const idx = state.plans.findIndex(p => p.version === updated.version);
+      if (idx !== -1) state.plans[idx] = updated;
 
-    updatePlanHeaderBadge();
-    showToast(`Plan v${updated.version} explicitly APPROVED for target execution!`, 'success');
-  } catch (err) {
-    showToast('Failed to approve plan: ' + err.message, 'error');
-  }
+      updatePlanHeaderBadge();
+      showToast(`Plan v${updated.version} explicitly APPROVED for target execution!`, 'success');
+    } catch (err) {
+      showToast('Failed to approve plan: ' + err.message, 'error');
+    }
+  });
 }
 
 async function handleRunDryRun() {
   if (!state.currentPlan) return;
-  try {
-    showToast(`Running deterministic dry-run on Plan v${state.currentPlan.version}...`, 'info');
-    const res = await fetch(`${API_BASE}/plans/${state.currentPlan.version}/dry-run`, { method: 'POST' });
-    const summary = await res.json();
-    renderDryRunResults(summary);
-    switchTab('tab-dryrun');
-    showToast(`Dry-Run complete: ${summary.accepted_count} valid, ${summary.rejected_count} quarantined in ${summary.execution_time_ms}ms`, 'success');
-  } catch (err) {
-    showToast('Dry-run failed: ' + err.message, 'error');
-  }
+  const btnTop = document.getElementById('btn-run-dry-run-top');
+  const btnMain = document.getElementById('btn-execute-dry-run-main');
+  const activeBtn = btnTop || btnMain;
+  await withButtonLoader(activeBtn, 'Simulating Dry-Run...', async () => {
+    try {
+      showToast(`Running deterministic dry-run on Plan v${state.currentPlan.version}...`, 'info');
+      const res = await fetch(`${API_BASE}/plans/${state.currentPlan.version}/dry-run`, { method: 'POST' });
+      const summary = await res.json();
+      renderDryRunResults(summary);
+      switchTab('tab-dryrun');
+      showToast(`Dry-Run complete: ${summary.accepted_count} valid, ${summary.rejected_count} quarantined in ${summary.execution_time_ms}ms`, 'success');
+    } catch (err) {
+      showToast('Dry-run failed: ' + err.message, 'error');
+    }
+  });
 }
 
 async function handleExecuteMigration() {
@@ -666,57 +736,65 @@ async function handleExecuteMigration() {
     return;
   }
 
-  try {
-    showToast(`Executing Plan v${state.currentPlan.version} into target SQLite store...`, 'info');
-    const res = await fetch(`${API_BASE}/plans/${state.currentPlan.version}/execute`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ plan_version: state.currentPlan.version, executed_by: 'Lead Data Engineer' })
-    });
+  const btnTop = document.getElementById('btn-execute-migration-top');
+  const btnMain = document.getElementById('btn-execute-migration-main');
+  const activeBtn = btnTop || btnMain;
+  await withButtonLoader(activeBtn, 'Writing Target Store...', async () => {
+    try {
+      showToast(`Executing Plan v${state.currentPlan.version} into target SQLite store...`, 'info');
+      const res = await fetch(`${API_BASE}/plans/${state.currentPlan.version}/execute`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan_version: state.currentPlan.version, executed_by: 'Lead Data Engineer' })
+      });
 
-    if (!res.ok) {
-      const errData = await res.json();
-      throw new Error(errData.detail || 'Execution failed');
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.detail || 'Execution failed');
+      }
+
+      const execResult = await res.json();
+      state.lastExecutionResult = execResult;
+      document.getElementById('target-stat-snapshot').textContent = execResult.snapshot_id;
+
+      await fetchTargetData();
+      renderTargetStoreView();
+      await renderReconciliationView();
+      switchTab('tab-execution');
+
+      showToast(`Migration executed! ${execResult.inserted_count} rows inserted into target store.`, 'success');
+    } catch (err) {
+      showToast('Execution failed: ' + err.message, 'error');
     }
-
-    const execResult = await res.json();
-    state.lastExecutionResult = execResult;
-    document.getElementById('target-stat-snapshot').textContent = execResult.snapshot_id;
-
-    await fetchTargetData();
-    renderTargetStoreView();
-    await renderReconciliationView();
-    switchTab('tab-execution');
-
-    showToast(`Migration executed! ${execResult.inserted_count} rows inserted into target store.`, 'success');
-  } catch (err) {
-    showToast('Execution failed: ' + err.message, 'error');
-  }
+  });
 }
 
 async function handleRetryMigration() {
   if (!state.currentPlan || state.currentPlan.status !== 'APPROVED') return;
-  try {
-    showToast('Retrying migration to verify Idempotency & Duplicate Prevention...', 'info');
-    const res = await fetch(`${API_BASE}/plans/${state.currentPlan.version}/execute`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ plan_version: state.currentPlan.version, executed_by: 'Lead Data Engineer' })
-    });
-    const execResult = await res.json();
-    state.lastExecutionResult = execResult;
+  const btn = document.getElementById('btn-retry-migration');
+  await withButtonLoader(btn, 'Verifying Idempotency...', async () => {
+    try {
+      showToast('Retrying migration to verify Idempotency & Duplicate Prevention...', 'info');
+      const res = await fetch(`${API_BASE}/plans/${state.currentPlan.version}/execute`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan_version: state.currentPlan.version, executed_by: 'Lead Data Engineer' })
+      });
+      const execResult = await res.json();
+      state.lastExecutionResult = execResult;
 
-    await fetchTargetData();
-    renderTargetStoreView();
-    await renderReconciliationView();
+      await fetchTargetData();
+      renderTargetStoreView();
+      await renderReconciliationView();
 
-    showToast(
-      `IDEMPOTENCY VERIFIED: 0 duplicates created! (${execResult.skipped_duplicates_count} rows recognized & refreshed)`, 
-      'success'
-    );
-  } catch (err) {
-    showToast('Retry test failed: ' + err.message, 'error');
-  }
+      showToast(
+        `IDEMPOTENCY VERIFIED: 0 duplicates created! (${execResult.skipped_duplicates_count} rows recognized & refreshed)`, 
+        'success'
+      );
+    } catch (err) {
+      showToast('Retry test failed: ' + err.message, 'error');
+    }
+  });
 }
 
 async function handleRollback() {
@@ -727,67 +805,99 @@ async function handleRollback() {
 
   const snapId = state.lastExecutionResult.snapshot_id;
   const runId = state.lastExecutionResult.run_id;
+  const btn = document.getElementById('btn-rollback-migration');
 
-  try {
-    showToast(`Rolling back target store using snapshot ${snapId}...`, 'info');
-    const res = await fetch(`${API_BASE}/rollback`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ snapshot_id: snapId, run_id: runId, actor: 'Lead Data Engineer' })
-    });
-    const rbResult = await res.json();
+  await withButtonLoader(btn, 'Rolling back...', async () => {
+    try {
+      showToast(`Rolling back target store using snapshot ${snapId}...`, 'info');
+      const res = await fetch(`${API_BASE}/rollback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ snapshot_id: snapId, run_id: runId, actor: 'Lead Data Engineer' })
+      });
+      const rbResult = await res.json();
 
-    await fetchTargetData();
-    renderTargetStoreView();
-    await renderReconciliationView();
+      await fetchTargetData();
+      renderTargetStoreView();
+      await renderReconciliationView();
 
-    showToast(`ROLLBACK COMPLETE: ${rbResult.records_removed} rows removed. Target restored cleanly.`, 'success');
-  } catch (err) {
-    showToast('Rollback failed: ' + err.message, 'error');
-  }
+      showToast(`ROLLBACK COMPLETE: ${rbResult.records_removed} rows removed. Target restored cleanly.`, 'success');
+    } catch (err) {
+      showToast('Rollback failed: ' + err.message, 'error');
+    }
+  });
 }
 
 async function handleForkPlan() {
   if (!state.currentPlan) return;
-  try {
-    const res = await fetch(`${API_BASE}/plans/${state.currentPlan.version}/fork`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(state.currentPlan.field_mappings)
-    });
-    const forked = await res.json();
-    state.plans.push(forked);
-    state.currentPlan = forked;
-    updatePlanHeaderBadge();
-    renderMappingStudio();
-    showToast(`Created new editable Plan v${forked.version} (DRAFT)!`, 'success');
-  } catch (err) {
-    showToast('Fork failed: ' + err.message, 'error');
-  }
+  const btn = document.getElementById('btn-save-as-new-version');
+  await withButtonLoader(btn, 'Forking Plan...', async () => {
+    try {
+      const res = await fetch(`${API_BASE}/plans/${state.currentPlan.version}/fork`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(state.currentPlan.field_mappings)
+      });
+      const forked = await res.json();
+      state.plans.push(forked);
+      state.currentPlan = forked;
+      updatePlanHeaderBadge();
+      renderMappingStudio();
+      showToast(`Created new editable Plan v${forked.version} (DRAFT)!`, 'success');
+    } catch (err) {
+      showToast('Fork failed: ' + err.message, 'error');
+    }
+  });
 }
 
 async function handleResetWorkbench() {
   if (!confirm('Reset target database, quarantine ledgers, and audit events to a clean slate?')) return;
-  try {
-    await fetch(`${API_BASE}/reset`, { method: 'POST' });
-    state.lastExecutionResult = null;
-    state.lastDryRunSummary = null;
-    await fetchTargetData();
-    renderTargetStoreView();
-    await renderReconciliationView();
-    showToast('Target store and ledger reset to clean slate.', 'info');
-  } catch (err) {
-    showToast('Reset failed: ' + err.message, 'error');
-  }
+  const btn = document.getElementById('btn-reset-workbench');
+  await withButtonLoader(btn, 'Resetting...', async () => {
+    try {
+      await fetch(`${API_BASE}/reset`, { method: 'POST' });
+      state.lastExecutionResult = null;
+      state.lastDryRunSummary = null;
+      await fetchTargetData();
+      renderTargetStoreView();
+      await renderReconciliationView();
+      showToast('Target store and ledger reset to clean slate.', 'info');
+    } catch (err) {
+      showToast('Reset failed: ' + err.message, 'error');
+    }
+  });
 }
 
 async function uploadFileObject(file) {
   if (!file) return;
+
+  const scalerBox = document.getElementById('upload-scaler-container');
+  const labelElem = document.getElementById('scaler-file-label');
+  const pctElem = document.getElementById('upload-scaler-percent');
+  const fillElem = document.getElementById('upload-scaler-fill');
+  const msgElem = document.getElementById('upload-scaler-msg');
+
+  const formatSize = (bytes) => (bytes / 1024).toFixed(1) + ' KB';
+
+  if (scalerBox) {
+    scalerBox.style.display = 'block';
+    if (labelElem) labelElem.textContent = `${file.name} (${formatSize(file.size)})`;
+    if (pctElem) pctElem.textContent = '10%';
+    if (fillElem) fillElem.style.width = '10%';
+    if (msgElem) msgElem.textContent = 'Reading binary chunks...';
+  }
+
   const formData = new FormData();
   formData.append('file', file);
 
   try {
     showToast(`Uploading and profiling '${file.name}'...`, 'info');
+
+    if (fillElem) {
+      setTimeout(() => { if (fillElem) fillElem.style.width = '45%'; if (pctElem) pctElem.textContent = '45%'; if (msgElem) msgElem.textContent = 'Streaming payload to server...'; }, 100);
+      setTimeout(() => { if (fillElem) fillElem.style.width = '80%'; if (pctElem) pctElem.textContent = '80%'; if (msgElem) msgElem.textContent = 'Parsing rows and profiling column invariants...'; }, 300);
+    }
+
     const res = await fetch(`${API_BASE}/upload/source`, {
       method: 'POST',
       body: formData
@@ -799,12 +909,21 @@ async function uploadFileObject(file) {
     }
 
     const data = await res.json();
+    if (fillElem) fillElem.style.width = '100%';
+    if (pctElem) pctElem.textContent = '100%';
+    if (msgElem) msgElem.textContent = '✓ Parsing & schema profiling complete!';
+
     showToast(data.message, 'success');
 
     // Reload all state and switch to profiler
     await loadInitialData();
     switchTab('tab-profiler');
+
+    setTimeout(() => {
+      if (scalerBox) scalerBox.style.display = 'none';
+    }, 2500);
   } catch (err) {
+    if (msgElem) msgElem.textContent = '❌ Upload failed: ' + err.message;
     showToast('Upload error: ' + err.message, 'error');
   }
 }
@@ -818,32 +937,38 @@ async function handleUploadDataset(event) {
 }
 
 async function handleLoadTestSample() {
-  try {
-    showToast('Loading 100 test records from user_test_records.csv...', 'info');
-    const res = await fetch(`${API_BASE}/load-test-records`, { method: 'POST' });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || 'Failed to load test sample');
+  const btn = document.getElementById('btn-load-test-sample');
+  await withButtonLoader(btn, 'Loading Sample...', async () => {
+    try {
+      showToast('Loading 100 test records from user_test_records.csv...', 'info');
+      const res = await fetch(`${API_BASE}/load-test-records`, { method: 'POST' });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || 'Failed to load test sample');
+      }
+      const data = await res.json();
+      showToast(data.message, 'success');
+      await loadInitialData();
+      switchTab('tab-profiler');
+    } catch (err) {
+      showToast('Load test sample error: ' + err.message, 'error');
     }
-    const data = await res.json();
-    showToast(data.message, 'success');
-    await loadInitialData();
-    switchTab('tab-profiler');
-  } catch (err) {
-    showToast('Load test sample error: ' + err.message, 'error');
-  }
+  });
 }
 
 async function handleLoadBenchmark() {
-  try {
-    showToast('Resetting to 1,000-record benchmark dataset...', 'info');
-    await fetch(`${API_BASE}/reset`, { method: 'POST' });
-    await fetch(`${API_BASE}/schemas/source`);
-    await loadInitialData();
-    showToast('Loaded benchmark dataset (1,000 records).', 'success');
-  } catch (err) {
-    showToast('Failed to load benchmark: ' + err.message, 'error');
-  }
+  const btn = document.getElementById('btn-load-benchmark');
+  await withButtonLoader(btn, 'Loading Benchmark...', async () => {
+    try {
+      showToast('Resetting to 1,000-record benchmark dataset...', 'info');
+      await fetch(`${API_BASE}/reset`, { method: 'POST' });
+      await fetch(`${API_BASE}/schemas/source`);
+      await loadInitialData();
+      showToast('Loaded benchmark dataset (1,000 records).', 'success');
+    } catch (err) {
+      showToast('Failed to load benchmark: ' + err.message, 'error');
+    }
+  });
 }
 
 window.handleAnswerClarification = async function(qId, answer) {
@@ -875,34 +1000,203 @@ window.handleAnswerClarification = async function(qId, answer) {
 // Modal & Toasts
 // ============================================================================
 
-window.openQuarantineModal = function(qRecord) {
+window.runLiveAIDiagnosis = async function(btn, field, rule, rawVal, errMsg, sourcePayload) {
+  const container = document.getElementById('live-ai-diagnosis-result');
+  if (!container) return;
+
+  await window.withButtonLoader(btn, 'Analyzing with Ollama AI...', async () => {
+    try {
+      container.style.display = 'block';
+      container.innerHTML = '<div style="color: var(--ink-muted); font-size: 0.8rem; font-style: italic;">Ollama Copilot inspecting target schema constraints and source payload...</div>';
+
+      const res = await fetch('/api/ai/diagnose-record', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          field,
+          rule,
+          raw_value: rawVal,
+          error_message: errMsg,
+          source_payload: sourcePayload
+        })
+      });
+      const data = await res.json();
+      container.innerHTML = `
+        <div style="background: rgba(14, 165, 233, 0.08); border: 1px solid rgba(14, 165, 233, 0.3); border-radius: var(--radius-sm); padding: 0.85rem; margin-top: 0.5rem;">
+          <div style="font-weight: 700; color: #0284c7; font-size: 0.74rem; text-transform: uppercase; margin-bottom: 0.35rem; display: flex; align-items: center; gap: 0.35rem;">
+            <span>🤖</span> Ollama Agent Reasoning (${data.status})
+          </div>
+          <div style="font-size: 0.82rem; line-height: 1.5; color: var(--ink-primary); white-space: pre-wrap;">${escapeHtml(data.diagnosis || '')}</div>
+        </div>
+      `;
+    } catch (err) {
+      container.innerHTML = `<div style="color: #f43f5e; font-size: 0.8rem;">Diagnosis request failed: ${escapeHtml(err.message)}</div>`;
+    }
+  });
+};
+
+window.applyAIFixSingle = async function(field, rule, rawVal, customFallback = null) {
+  if (!state.currentPlan) {
+    showToast('No active migration plan available.', 'error');
+    return;
+  }
+  const oldQuar = state.dryRunSummary ? state.dryRunSummary.rejected_count : 0;
+  
+  try {
+    showToast(`Applying AI remediation for field '${field}'...`, 'info');
+    const res = await fetch(`/api/plans/${state.currentPlan.version}/apply-fix`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        target_field: field,
+        rule: rule,
+        raw_value: rawVal,
+        custom_fallback: customFallback
+      })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'Failed to apply AI fix' }));
+      throw new Error(err.detail || 'Failed to apply AI fix');
+    }
+    const data = await res.json();
+    state.currentPlan = data.plan;
+    state.dryRunSummary = data.dry_run_summary;
+    renderDryRunResults(data.dry_run_summary);
+    renderMappingStudio();
+    updatePlanHeaderBadge();
+    closeModal();
+    const newQuar = data.dry_run_summary.rejected_count;
+    showToast(`🎉 AI Fix Implemented! Quarantined records reduced from ${oldQuar} ➔ ${newQuar} across all values.`, 'success');
+  } catch (err) {
+    showToast('Failed to implement AI fix: ' + err.message, 'error');
+  }
+};
+
+window.applyAllAIFixesMode1 = async function() {
+  if (!state.currentPlan) {
+    showToast('Please synthesize or load a migration plan first.', 'error');
+    return;
+  }
+  const btn = document.getElementById('btn-auto-fix-all-mode1');
+  const oldQuar = state.dryRunSummary ? state.dryRunSummary.rejected_count : 0;
+
+  await window.withButtonLoader(btn, 'Auto-Remediating & Re-simulating...', async () => {
+    try {
+      const res = await fetch(`/api/plans/${state.currentPlan.version}/apply-fix`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fix_action: 'AUTO_RESOLVE_ALL'
+        })
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: 'Auto-remediation failed' }));
+        throw new Error(err.detail || 'Auto-remediation failed');
+      }
+      const data = await res.json();
+      state.currentPlan = data.plan;
+      state.dryRunSummary = data.dry_run_summary;
+      renderDryRunResults(data.dry_run_summary);
+      renderMappingStudio();
+      updatePlanHeaderBadge();
+      closeModal();
+      const newQuar = data.dry_run_summary.rejected_count;
+      showToast(`⚡ All AI fixes applied! Quarantine dropped from ${oldQuar} ➔ ${newQuar} (100% compliant).`, 'success');
+    } catch (err) {
+      showToast('Error applying AI fixes: ' + err.message, 'error');
+    }
+  });
+};
+
+window.openQuarantineModal = function(qRecord, mode = 'mode1') {
   const modal = document.getElementById('record-modal');
   const title = document.getElementById('modal-title');
   const body = document.getElementById('modal-body');
 
-  title.textContent = `Quarantine Forensic Evidence (Row #${qRecord.source_row_index + 1})`;
+  const isMode2 = (mode === 'mode2');
+  title.textContent = isMode2 
+    ? `Quarantine Forensic Evidence (Row #${qRecord.source_row_index + 1}) [Universal Studio]`
+    : `Quarantine Forensic Evidence (Row #${qRecord.source_row_index + 1})`;
 
-  const errorsHtml = qRecord.errors.map(e => `
-    <div style="background: rgba(244, 63, 94, 0.12); border: 1px solid rgba(244, 63, 94, 0.3); border-radius: var(--radius-sm); padding: 0.85rem; margin-bottom: 0.75rem;">
-      <div style="display: flex; justify-content: space-between; font-weight: 600; color: #fda4af;">
-        <span>Field: <span class="mono">${escapeHtml(e.field)}</span></span>
-        <span class="badge-pill">${escapeHtml(e.rule)}</span>
+  const firstErr = (qRecord.errors && qRecord.errors.length > 0) ? qRecord.errors[0] : {};
+  const aiFix = firstErr.ai_suggestion || qRecord.ai_remediation_summary || 'Configure fallback substitution or normalize source format';
+
+  const errorsHtml = (qRecord.errors || []).map(e => `
+    <div style="background: rgba(244, 63, 94, 0.08); border: 1px solid rgba(244, 63, 94, 0.25); border-radius: var(--radius-sm); padding: 0.85rem; margin-bottom: 0.75rem;">
+      <div style="display: flex; justify-content: space-between; align-items: center; font-weight: 600; color: #f43f5e; margin-bottom: 0.35rem;">
+        <span>Field: <span class="mono" style="font-weight: 700;">${escapeHtml(e.field)}</span></span>
+        <span class="badge-pill" style="font-size: 0.7rem; background: rgba(244, 63, 94, 0.12); color: #f43f5e; border-color: rgba(244, 63, 94, 0.3);">${escapeHtml(e.rule)}</span>
       </div>
-      <div style="margin-top: 0.35rem; font-size: 0.85rem; color: #fff;">${escapeHtml(e.error_message)}</div>
-      <div style="margin-top: 0.35rem; font-size: 0.75rem; color: var(--text-muted);">Raw Input: <span class="mono" style="color: #cbd5e1;">${escapeHtml(String(e.raw_value))}</span></div>
+      <div style="font-size: 0.84rem; color: var(--ink-primary); font-weight: 500; margin-bottom: 0.35rem;">${escapeHtml(e.error_message)}</div>
+      <div style="font-size: 0.75rem; color: var(--ink-muted);">Raw Input: <span class="mono" style="color: #334155; background: var(--bg-subtle); padding: 0.15rem 0.4rem; border-radius: 3px; border: 1px solid var(--border-hairline);">${escapeHtml(String(e.raw_value))}</span></div>
     </div>
   `).join('');
 
+  const aiBoxHtml = isMode2 ? `
+    <!-- AI Remediation Box (Universal Studio V2) -->
+    <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-left: 4px solid #0284c7; border-radius: var(--radius-md); padding: 1rem; margin-bottom: 1.25rem;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
+        <span style="font-weight: 700; font-size: 0.78rem; color: #0284c7; text-transform: uppercase; letter-spacing: 0.04em;">
+          🤖 AI Forensic Remediation Suggestion
+        </span>
+        <button id="btn-live-ai-diagnose" class="btn btn-secondary" style="padding: 0.25rem 0.65rem; font-size: 0.74rem;">
+          ⚡ Ask Ollama Live Diagnosis
+        </button>
+      </div>
+      <p style="font-size: 0.84rem; color: #1e293b; line-height: 1.5; margin: 0 0 0.75rem 0;">
+        ${escapeHtml(aiFix)}
+      </p>
+      <div id="live-ai-diagnosis-result" style="display: none; margin-bottom: 0.75rem;"></div>
+      <div style="display: flex; justify-content: flex-end; gap: 0.5rem; border-top: 1px dashed #cbd5e1; padding-top: 0.75rem;">
+        <button id="btn-modal-apply-fix" class="btn btn-primary" style="padding: 0.35rem 0.85rem; font-size: 0.78rem; font-weight: 600;">
+          ⚡ Implement AI Fix & Re-run Simulation
+        </button>
+      </div>
+    </div>
+  ` : '';
+
   body.innerHTML = `
+    ${aiBoxHtml}
+
+    <!-- Violations -->
     <div style="margin-bottom: 1.25rem;">
-      <h4 style="font-size: 0.85rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.5rem;">Target Constraint Violations:</h4>
+      <h4 style="font-size: 0.8rem; font-weight: 700; text-transform: uppercase; color: var(--ink-muted); letter-spacing: 0.04em; margin-bottom: 0.5rem;">Target Schema Violations:</h4>
       ${errorsHtml}
     </div>
+
+    <!-- Raw Source Payload -->
     <div>
-      <h4 style="font-size: 0.85rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.5rem;">Raw Source Ingestion Payload:</h4>
-      <pre style="background: #090d16; padding: 1rem; border-radius: var(--radius-md); font-size: 0.75rem; color: #38bdf8; overflow-x: auto; border: 1px solid var(--border-subtle);">${escapeHtml(JSON.stringify(qRecord.source_payload, null, 2))}</pre>
+      <h4 style="font-size: 0.8rem; font-weight: 700; text-transform: uppercase; color: var(--ink-muted); letter-spacing: 0.04em; margin-bottom: 0.5rem;">Raw Source Record Payload:</h4>
+      <pre style="background: #09090b; color: #38bdf8; padding: 1rem; border-radius: var(--radius-md); font-size: 0.76rem; overflow-x: auto; border: 1px solid var(--border-hairline); max-height: 200px;">${escapeHtml(JSON.stringify(qRecord.source_payload, null, 2))}</pre>
     </div>
   `;
+
+  // Attach live diagnosis click handler (Mode 2 only)
+  const liveBtn = document.getElementById('btn-live-ai-diagnose');
+  if (liveBtn) {
+    liveBtn.onclick = () => {
+      window.runLiveAIDiagnosis(
+        liveBtn,
+        firstErr.field || '',
+        firstErr.rule || '',
+        firstErr.raw_value || '',
+        firstErr.error_message || '',
+        qRecord.source_payload || {}
+      );
+    };
+  }
+
+  // Attach Implement Fix handler (Mode 2 only)
+  const modalFixBtn = document.getElementById('btn-modal-apply-fix');
+  if (modalFixBtn) {
+    modalFixBtn.onclick = async () => {
+      await window.withButtonLoader(modalFixBtn, 'Applying Fix & Re-simulating...', async () => {
+        if (typeof window.applyAIFixSingleV2 === 'function') {
+          await window.applyAIFixSingleV2(firstErr.field || '', firstErr.rule || '', firstErr.raw_value);
+        }
+      });
+    };
+  }
 
   modal.classList.add('active');
 };

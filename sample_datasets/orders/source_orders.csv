@@ -1,0 +1,11 @@
+order_id,order_num,cust_email_raw,date_placed,order_total_str,status_cd
+ORD-901,ON-2024-001,alice@example.com,2024-02-01,"$129.99",COMPL
+ORD-902,ON-2024-002,bob.smith@company.org,02/02/2024,"($45.00)",REFUND
+ORD-903,ON-2024-003,carol_d@domain.io,2024-02-03,"$1,299.00",COMPL
+ORD-904,ON-2024-004,david1990@gmail.com,2024-02-03,"$89.50",PEND
+ORD-905,ON-2024-005,elena_m@yahoo.com,02/04/2024,"$340.20",COMPL
+ORD-906,ON-2024-006,frank.wright@build.co,2024-02-05,"$2,150.00",COMPL
+ORD-907,ON-2024-007,grace_h@navy.mil,2024-02-05,"$54.00",CANC
+ORD-908,ON-2024-008,hank.p@biotech.net,2024-02-06,"$670.80",PEND
+ORD-909,ON-2024-009,iris.v@techcorp.com,02/06/2024,"$49.99",COMPL
+ORD-910,ON-2024-010,jack.b@startup.ai,2024-02-07,"$999.00",COMPL
